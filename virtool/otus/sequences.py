@@ -2,17 +2,20 @@
 Database functions and utilities for sequences.
 
 """
+import aiofiles
+import os
 from typing import Union
+
+import pymongo.errors
 
 import virtool.history
 import virtool.history.db
-import virtool.otus
 import virtool.otus.db
 import virtool.otus.utils
 import virtool.utils
 
 
-async def create(db, ref_id: str, otu_id: str, isolate_id: str, data: dict, user_id: str):
+async def create(db, ref_id: str, otu_id: str, isolate_id: str, data: dict, user_id: str) -> dict:
     """
     Create a new sequence document. Update the
 
@@ -41,7 +44,11 @@ async def create(db, ref_id: str, otu_id: str, isolate_id: str, data: dict, user
 
     old = await virtool.otus.db.join(db, otu_id)
 
-    sequence_document = await db.sequences.insert_one(to_insert)
+    try:
+        sequence_document = await db.sequences.insert_one(to_insert)
+    except pymongo.errors.DocumentTooLarge:
+        sequence_document = await db.sequences.insert_one(dict(to_insert, sequence="file"))
+        sequence_document["sequence"] = to_insert["sequence"]
 
     document = await increment_otu_version(db, otu_id)
 
@@ -183,3 +190,34 @@ async def remove(db, otu_id: str, isolate_id: str, sequence_id: str, user_id: st
         f"Removed sequence {sequence_id} from {isolate_name}",
         user_id
     )
+
+
+async def ensure_sequence(data_path, document):
+    if document["sequence"] == "file":
+        return {
+            **document,
+            "sequence": await read_sequence_from_file(data_path, document["_id"])
+        }
+
+    return document
+
+
+async def read_sequence_from_file(data_path, sequence_id):
+    path = os.path.join(data_path, "sequences", f"{sequence_id}.txt")
+
+    async with aiofiles.open(path, "r") as f:
+        return await f.read(f)
+
+
+async def write_sequence_to_file(data_path, sequence_id, sequence):
+    sequences_path = os.path.join(data_path, "sequences")
+
+    try:
+        os.mkdir(sequences_path)
+    except FileExistsError:
+        pass
+
+    path = os.path.join(sequences_path,  f"{sequence_id}.txt")
+
+    async with aiofiles.open(path, "w") as f:
+        await f.write(sequence)
