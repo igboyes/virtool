@@ -1,21 +1,17 @@
+import typing
+
 import pymongo.results
-from typing import Union
-import virtool.history.db
+
 import virtool.db.utils
 import virtool.errors
+import virtool.history.db
 import virtool.history.utils
 import virtool.otus.utils
+import virtool.types
 import virtool.utils
 from virtool.api.utils import compose_regex_query, paginate
 
-PROJECTION = [
-    "_id",
-    "abbreviation",
-    "name",
-    "reference",
-    "verified",
-    "version"
-]
+PROJECTION = ["_id", "abbreviation", "name", "reference", "verified", "version"]
 
 SEQUENCE_PROJECTION = [
     "_id",
@@ -24,16 +20,16 @@ SEQUENCE_PROJECTION = [
     "otu_id",
     "isolate_id",
     "sequence",
-    "segment"
+    "segment",
 ]
 
 
 async def check_name_and_abbreviation(
-        db,
-        ref_id: str,
-        name: Union[None, str] = None,
-        abbreviation: Union[None, str] = None
-):
+    db,
+    ref_id: str,
+    name: Union[None, str] = None,
+    abbreviation: Union[None, str] = None,
+) -> Union[bool, str]:
     """
     Check is a otu name and abbreviation are already in use in the reference identified by `ref_id`. Returns a message
     if the ``name`` or ``abbreviation`` are already in use. Returns ``False`` if they are not in use.
@@ -47,18 +43,16 @@ async def check_name_and_abbreviation(
     name_count = 0
 
     if name:
-        name_count = await db.otus.count_documents({
-            "lower_name": name.lower(),
-            "reference.id": ref_id
-        })
+        name_count = await db.otus.count_documents(
+            {"lower_name": name.lower(), "reference.id": ref_id}
+        )
 
     abbr_count = 0
 
     if abbreviation:
-        abbr_count = await db.otus.count_documents({
-            "abbreviation": abbreviation,
-            "reference.id": ref_id
-        })
+        abbr_count = await db.otus.count_documents(
+            {"abbreviation": abbreviation, "reference.id": ref_id}
+        )
 
     unique_name = not name or not name_count
     unique_abbreviation = not abbreviation or not abbr_count
@@ -75,7 +69,9 @@ async def check_name_and_abbreviation(
     return False
 
 
-async def create(app, ref_id, name, abbreviation, user_id):
+async def create(
+    app: virtool.types.App, ref_id: str, name: str, abbreviation: str, user_id: str
+) -> dict:
     """
     Create a new OTU.
 
@@ -101,10 +97,8 @@ async def create(app, ref_id, name, abbreviation, user_id):
         "lower_name": name.lower(),
         "isolates": [],
         "version": 0,
-        "reference": {
-            "id": ref_id
-        },
-        "schema": []
+        "reference": {"id": ref_id},
+        "schema": [],
     }
 
     # Insert the otu document.
@@ -113,25 +107,20 @@ async def create(app, ref_id, name, abbreviation, user_id):
     description = virtool.history.utils.compose_create_description(document)
 
     change = await virtool.history.db.add(
-        app,
-        "create",
-        None,
-        document,
-        description,
-        user_id
+        app, "create", None, document, description, user_id
     )
 
     return virtool.otus.utils.format_otu(document, most_recent_change=change)
 
 
 async def edit(
-        app,
-        otu_id: Union[str, None],
-        name: Union[str, None],
-        abbreviation: Union[str, None],
-        schema: Union[str, list],
-        user_id: str
-):
+    app,
+    otu_id: str,
+    name: typing.Optional[str],
+    abbreviation: typing.Optional[str, None],
+    schema: typing.Optional[typing.Union[str, list]],
+    user_id: str,
+) -> dict:
     """
     Edit an existing OTU identified by `otu_id`. Modifiable fields are `name`, `abbreviation`, and `schema`.
 
@@ -148,16 +137,11 @@ async def edit(
 
     # Update the ``modified`` and ``verified`` fields in the otu document now, because we are definitely going to
     # modify the otu.
-    update = {
-        "verified": False
-    }
+    update = {"verified": False}
 
     # If the name is changing, update the ``lower_name`` field in the otu document.
     if name is not None:
-        update.update({
-            "name": name,
-            "lower_name": name.lower()
-        })
+        update.update({"name": name, "lower_name": name.lower()})
 
     if abbreviation is not None:
         update["abbreviation"] = abbreviation
@@ -168,12 +152,9 @@ async def edit(
     old = await virtool.otus.db.join(db, otu_id)
 
     # Update the database collection.
-    document = await db.otus.find_one_and_update({"_id": otu_id}, {
-        "$set": update,
-        "$inc": {
-            "version": 1
-        }
-    })
+    document = await db.otus.find_one_and_update(
+        {"_id": otu_id}, {"$set": update, "$inc": {"version": 1}}
+    )
 
     await virtool.otus.db.update_sequence_segments(db, old, document)
 
@@ -181,21 +162,40 @@ async def edit(
 
     issues = await virtool.otus.db.update_verification(db, new)
 
-    description = virtool.history.utils.compose_edit_description(name, abbreviation, old["abbreviation"], schema)
-
-    await virtool.history.db.add(
-        app,
-        "edit",
-        old,
-        new,
-        description,
-        user_id
+    description = virtool.history.utils.compose_edit_description(
+        name, abbreviation, old["abbreviation"], schema
     )
+
+    await virtool.history.db.add(app, "edit", old, new, description, user_id)
 
     return await virtool.otus.db.join_and_format(db, otu_id, joined=new, issues=issues)
 
 
-async def find(db, names, term, req_query, verified, ref_id=None):
+async def find(
+    db,
+    names: bool,
+    term: str,
+    req_query: dict,
+    verified: bool,
+    ref_id: typing.Optional[str] = None,
+):
+    """
+    Find OTUs based on a search `term`, the `verified`, and a source `ref_id`.
+
+    Setting the `ref_id` will only return OTUs from that reference. Settings the `verified` flag will only return OTUs
+    the are in a verified state (no unbuilt changes that invalidate the OTU).
+
+    Setting the `names` flag returns only the `name` and `id` fields but returns ALL OTUs with no paging required.
+
+    :param db: the application database object
+    :param names: only return the `name` and `id` fields
+    :param term: a search term
+    :param req_query: the request query
+    :param verified: only return verified OTUs
+    :param ref_id: only return OTUs from the given ref
+    :return: search results
+
+    """
     db_query = dict()
 
     if term:
@@ -207,9 +207,7 @@ async def find(db, names, term, req_query, verified, ref_id=None):
     base_query = None
 
     if ref_id is not None:
-        base_query = {
-            "reference.id": ref_id
-        }
+        base_query = {"reference.id": ref_id}
 
     if names is True or names == "true":
         cursor = db.otus.find({**db_query, **base_query}, ["name"], sort=[("name", 1)])
@@ -221,12 +219,10 @@ async def find(db, names, term, req_query, verified, ref_id=None):
         req_query,
         base_query=base_query,
         sort="name",
-        projection=PROJECTION
+        projection=PROJECTION,
     )
 
-    history_query = {
-        "index.id": "unbuilt"
-    }
+    history_query = {"index.id": "unbuilt"}
 
     if ref_id:
         history_query["reference.id"] = ref_id
@@ -236,22 +232,17 @@ async def find(db, names, term, req_query, verified, ref_id=None):
     return data
 
 
-async def join(db, query, document=None):
+async def join(
+    db, query: typing.Union[str, dict], document: typing.Optional[dict] = None
+):
     """
     Join the otu associated with the supplied ``otu_id`` with its sequences. If a otu entry is also passed,
     the database will not be queried for the otu based on its id.
 
-    :param db: the application database client
-    :type db: :class:`~motor.motor_asyncio.AsyncIOMotorClient`
-
-    :param query: the id of the otu to join or a Mongo query.
-    :type query: Union[dict,str]
-
-    :param document: use this otu document as a basis for the join instead finding it using the otu id.
-    :type document: dict
-
+    :param db: the application database object
+    :param query: the id of the otu to join or a Mongo query
+    :param document: use this OTU document as a basis for the join instead finding it using the otu id
     :return: the joined otu document
-    :rtype: Coroutine[dict]
 
     """
     # Get the otu entry if a ``document`` parameter was not passed.
@@ -267,10 +258,11 @@ async def join(db, query, document=None):
 
 
 async def join_and_format(
-        db, otu_id: str,
-        joined: Union[dict, None] = None,
-        issues: Union[dict, None, bool] = False
-) -> Union[dict, None]:
+    db,
+    otu_id: str,
+    joined: typing.Union[dict, None] = None,
+    issues: typing.Union[dict, None, bool] = False,
+) -> typing.Union[dict, None]:
     """
     Join the otu identified by the passed ``otu_id`` or use the ``joined`` otu document if available. Then,
     format the joined otu into a format that can be directly returned to API clients.
@@ -296,12 +288,12 @@ async def join_and_format(
 
 
 async def remove(
-        app,
-        otu_id: str,
-        user_id: str,
-        document: Union[dict, None] = None,
-        silent: bool = False
-) -> Union[None, bool]:
+    app,
+    otu_id: str,
+    user_id: str,
+    document: typing.Union[dict, None] = None,
+    silent: bool = False,
+) -> typing.Union[None, bool]:
     """
     Remove and OTU given its `otu_id`. Create a history document to record the change.
 
@@ -328,35 +320,35 @@ async def remove(
     await db.otus.delete_one({"_id": otu_id}, silent=silent)
 
     # Unset the reference internal_control if it is the OTU being removed.
-    await db.references.update_one({"_id": joined["reference"]["id"], "internal_control.id": joined["_id"]}, {
-        "$set": {
-            "internal_control": None
-        }
-    })
+    await db.references.update_one(
+        {"_id": joined["reference"]["id"], "internal_control.id": joined["_id"]},
+        {"$set": {"internal_control": None}},
+    )
 
     description = virtool.history.utils.compose_remove_description(joined)
 
     # Add a removal history item.
     await virtool.history.db.add(
-        app,
-        "remove",
-        joined,
-        None,
-        description,
-        user_id,
-        silent=silent
+        app, "remove", joined, None, description, user_id, silent=silent
     )
 
     return True
 
 
-async def verify(db, otu_id, joined=None):
+async def verify(
+    db, otu_id: str, joined: typing.Optional[dict] = None
+) -> typing.Union[dict, None]:
     """
     Verifies that the associated otu is ready to be included in an index rebuild. Returns verification errors if
     necessary.
 
+    If the `joined` OTU document is not passed it will be retrieved from the database.
+
+    :param db: the application database object
+    :param otu_id: the ID of the OTU to verify
+    :param joined: the joined OTU document
+    :return: a `dict` describing errors or `None`
     """
-    # Get the otu document of interest.
     joined = joined or await join(db, otu_id)
 
     if not joined:
@@ -365,7 +357,9 @@ async def verify(db, otu_id, joined=None):
     return virtool.otus.utils.verify(joined)
 
 
-async def update_last_indexed_version(db, id_list: list, version: int) -> pymongo.results.UpdateResult:
+async def update_last_indexed_version(
+    db, id_list: list, version: int
+) -> pymongo.results.UpdateResult:
     """
     Called from a index rebuild job. Updates the last indexed version and _version fields
     of all otu involved in the rebuild when the build completes.
@@ -376,12 +370,10 @@ async def update_last_indexed_version(db, id_list: list, version: int) -> pymong
     :return: the Pymongo update result
 
     """
-    result = await db.otus.update_many({"_id": {"$in": id_list}}, {
-        "$set": {
-            "last_indexed_version": version,
-            "version": version
-        }
-    })
+    result = await db.otus.update_many(
+        {"_id": {"$in": id_list}},
+        {"$set": {"last_indexed_version": version, "version": version}},
+    )
 
     return result
 
@@ -398,23 +390,28 @@ async def update_sequence_segments(db, old, new):
 
     to_unset = list(old_names - new_names)
 
-    await db.sequences.update_many({"otu_id": old["_id"], "segment": {"$in": to_unset}}, {
-        "$unset": {
-            "segment": ""
-        }
-    })
+    await db.sequences.update_many(
+        {"otu_id": old["_id"], "segment": {"$in": to_unset}},
+        {"$unset": {"segment": ""}},
+    )
 
 
-async def update_verification(db, joined):
+async def update_verification(db, joined) -> typing.Optional[dict, None]:
+    """
+    Update the verification information for the joined OTU. Verifies the OTU than sets the `verified` key in the
+    document and returns any issues in the OTU
+
+    The OTU document is updated in-place.
+
+    :param db: the application database object
+    :param joined: the joined OTU to verify
+    :return: any issues
+
+    """
     issues = virtool.otus.utils.verify(joined)
 
     if issues is None:
-        await db.otus.update_one({"_id": joined["_id"]}, {
-            "$set": {
-                "verified": True
-            }
-        })
-
+        await db.otus.update_one({"_id": joined["_id"]}, {"$set": {"verified": True}})
         joined["verified"] = True
 
     return issues

@@ -19,23 +19,22 @@ import virtool.otus.utils
 import virtool.references.utils
 import virtool.utils
 import virtool.validators
-from virtool.api.response import bad_gateway, bad_request, insufficient_rights, json_response, no_content, not_found
+from virtool.api.response import (
+    bad_gateway,
+    bad_request,
+    insufficient_rights,
+    json_response,
+    no_content,
+    not_found,
+)
 
 routes = virtool.http.routes.Routes()
 
 RIGHTS_SCHEMA = {
-    "build": {
-        "type": "boolean"
-    },
-    "modify": {
-        "type": "boolean"
-    },
-    "modify_otu": {
-        "type": "boolean"
-    },
-    "remove": {
-        "type": "boolean"
-    }
+    "build": {"type": "boolean"},
+    "modify": {"type": "boolean"},
+    "modify_otu": {"type": "boolean"},
+    "remove": {"type": "boolean"},
 }
 
 
@@ -51,9 +50,7 @@ async def find(req):
         db_query = virtool.api.utils.compose_regex_query(term, ["name", "data_type"])
 
     base_query = virtool.references.db.compose_base_find_query(
-        req["client"].user_id,
-        req["client"].administrator,
-        req["client"].groups
+        req["client"].user_id, req["client"].administrator, req["client"].groups
     )
 
     data = await virtool.api.utils.paginate(
@@ -62,10 +59,12 @@ async def find(req):
         req.query,
         sort="name",
         base_query=base_query,
-        projection=virtool.references.db.PROJECTION
+        projection=virtool.references.db.PROJECTION,
     )
 
-    data["documents"] = [await virtool.references.db.processor(db, d) for d in data["documents"]]
+    data["documents"] = [
+        await virtool.references.db.processor(db, d) for d in data["documents"]
+    ]
     data["official_installed"] = await virtool.references.db.get_official_installed(db)
 
     return json_response(data)
@@ -104,7 +103,9 @@ async def get_release(req):
     if not await virtool.db.utils.id_exists(db.references, ref_id):
         return not_found()
 
-    if not await db.references.count_documents({"_id": ref_id, "remotes_from": {"$exists": True}}):
+    if not await db.references.count_documents(
+        {"_id": ref_id, "remotes_from": {"$exists": True}}
+    ):
         return bad_request("Not a remote reference")
 
     try:
@@ -162,26 +163,31 @@ async def update(req):
     context = {
         "created_at": created_at,
         "ref_id": ref_id,
-        "release": await virtool.db.utils.get_one_field(db.references, "release", ref_id),
-        "user_id": user_id
+        "release": await virtool.db.utils.get_one_field(
+            db.references, "release", ref_id
+        ),
+        "user_id": user_id,
     }
 
-    process = await virtool.processes.db.register(db, "update_remote_reference", context=context)
+    process = await virtool.processes.db.create(
+        db, "update_remote_reference", context=context
+    )
 
-    release, update_subdocument = await asyncio.shield(virtool.references.db.update(
-        req,
-        created_at,
-        process["id"],
-        ref_id,
-        release,
-        user_id
-    ))
+    release, update_subdocument = await asyncio.shield(
+        virtool.references.db.update(
+            req, created_at, process["id"], ref_id, release, user_id
+        )
+    )
 
     return json_response(update_subdocument, status=201)
 
 
 @routes.get("/api/refs/{ref_id}/otus")
 async def find_otus(req):
+    """
+    Search OTUs in the context of a single reference.
+
+    """
     db = req.app["db"]
 
     ref_id = req.match_info["ref_id"]
@@ -193,20 +199,17 @@ async def find_otus(req):
     verified = req.query.get("verified")
     names = req.query.get("names", False)
 
-    data = await virtool.otus.db.find(
-        db,
-        names,
-        term,
-        req.query,
-        verified,
-        ref_id
-    )
+    data = await virtool.otus.db.find(db, names, term, req.query, verified, ref_id)
 
     return json_response(data)
 
 
 @routes.get("/api/refs/{ref_id}/history")
 async def find_history(req):
+    """
+    Search OTU history in the context of a single reference.
+
+    """
     db = req.app["db"]
 
     ref_id = req.match_info["ref_id"]
@@ -214,9 +217,7 @@ async def find_history(req):
     if not await db.references.count_documents({"_id": ref_id}):
         return not_found()
 
-    base_query = {
-        "reference.id": ref_id
-    }
+    base_query = {"reference.id": ref_id}
 
     unbuilt = req.query.get("unbuilt")
 
@@ -224,21 +225,19 @@ async def find_history(req):
         base_query["index.id"] = "unbuilt"
 
     elif unbuilt == "false":
-        base_query["index.id"] = {
-            "$ne": "unbuilt"
-        }
+        base_query["index.id"] = {"$ne": "unbuilt"}
 
-    data = await virtool.history.db.find(
-        db,
-        req.query,
-        base_query
-    )
+    data = await virtool.history.db.find(db, req.query, base_query)
 
     return json_response(data)
 
 
 @routes.get("/api/refs/{ref_id}/indexes")
 async def find_indexes(req):
+    """
+    Find indexes in the context of a single reference.
+
+    """
     db = req.app["db"]
 
     ref_id = req.match_info["ref_id"]
@@ -246,64 +245,37 @@ async def find_indexes(req):
     if not await virtool.db.utils.id_exists(db.references, ref_id):
         return not_found()
 
-    data = await virtool.indexes.db.find(
-        db,
-        req.query,
-        ref_id=ref_id
-    )
+    data = await virtool.indexes.db.find(db, req.query, ref_id=ref_id)
 
     return json_response(data)
 
 
-@routes.post("/api/refs", permission="create_ref", schema={
-    "name": {
-        "type": "string",
-        "coerce": virtool.validators.strip,
-        "default": ""
+@routes.post(
+    "/api/refs",
+    permission="create_ref",
+    schema={
+        "name": {"type": "string", "coerce": virtool.validators.strip, "default": ""},
+        "description": {
+            "type": "string",
+            "coerce": virtool.validators.strip,
+            "default": "",
+        },
+        "data_type": {
+            "type": "string",
+            "allowed": ["barcode", "genome"],
+            "default": "genome",
+        },
+        "clone_from": {"type": "string", "excludes": ["import_from", "remote_from"]},
+        "import_from": {"type": "string", "excludes": ["clone_from", "remote_from"]},
+        "remote_from": {
+            "type": "string",
+            "allowed": ["virtool/ref-plant-viruses"],
+            "excludes": ["clone_from", "import_from"],
+        },
+        "organism": {"type": "string", "default": ""},
+        "release_id": {"type": "string"},
     },
-    "description": {
-        "type": "string",
-        "coerce": virtool.validators.strip,
-        "default": ""
-    },
-    "data_type": {
-        "type": "string",
-        "allowed": [
-            "barcode",
-            "genome"
-        ],
-        "default": "genome"
-    },
-    "clone_from": {
-        "type": "string",
-        "excludes": [
-            "import_from",
-            "remote_from"
-        ]
-    },
-    "import_from": {
-        "type": "string",
-        "excludes": [
-            "clone_from",
-            "remote_from"
-        ]
-    },
-    "remote_from": {
-        "type": "string",
-        "allowed": ["virtool/ref-plant-viruses"],
-        "excludes": [
-            "clone_from",
-            "import_from"
-        ]
-    },
-    "organism": {
-        "type": "string",
-        "default": ""
-    },
-    "release_id": {
-        "type": "string"
-    }
-})
+)
 async def create(req):
     db = req.app["db"]
     data = req["data"]
@@ -323,28 +295,23 @@ async def create(req):
         manifest = await virtool.references.db.get_manifest(db, clone_from)
 
         document = await virtool.references.db.create_clone(
-            db,
-            settings,
-            data["name"],
-            clone_from,
-            data["description"],
-            user_id
+            db, settings, data["name"], clone_from, data["description"], user_id
         )
 
         context = {
             "created_at": document["created_at"],
             "manifest": manifest,
             "ref_id": document["_id"],
-            "user_id": user_id
+            "user_id": user_id,
         }
 
-        process = await virtool.processes.db.register(db, "clone_reference", context=context)
+        process = await virtool.processes.db.create(
+            db, "clone_reference", context=context
+        )
 
         p = virtool.references.db.CloneReferenceProcess(req.app, process["id"])
 
-        document["process"] = {
-            "id": p.id
-        }
+        document["process"] = {"id": p.id}
 
         await aiojobs.aiohttp.spawn(req, p.run())
 
@@ -355,38 +322,30 @@ async def create(req):
         path = os.path.join(req.app["settings"]["data_path"], "files", import_from)
 
         document = await virtool.references.db.create_import(
-            db,
-            settings,
-            data["name"],
-            data["description"],
-            import_from,
-            user_id
+            db, settings, data["name"], data["description"], import_from, user_id
         )
 
         context = {
             "created_at": document["created_at"],
             "path": path,
             "ref_id": document["_id"],
-            "user_id": user_id
+            "user_id": user_id,
         }
 
-        process = await virtool.processes.db.register(db, "import_reference", context=context)
+        process = await virtool.processes.db.create(
+            db, "import_reference", context=context
+        )
 
         p = virtool.references.db.ImportReferenceProcess(req.app, process["id"])
 
-        document["process"] = {
-            "id": p.id
-        }
+        document["process"] = {"id": p.id}
 
         await aiojobs.aiohttp.spawn(req, p.run())
 
     elif remote_from:
         try:
             release = await virtool.github.get_release(
-                settings,
-                req.app["client"],
-                remote_from,
-                release_id=release_id
+                settings, req.app["client"], remote_from, release_id=release_id
             )
 
         except aiohttp.ClientConnectionError:
@@ -401,27 +360,24 @@ async def create(req):
         release = virtool.github.format_release(release)
 
         document = await virtool.references.db.create_remote(
-            db,
-            settings,
-            release,
-            remote_from,
-            user_id
+            db, settings, release, remote_from, user_id
         )
 
-        process = await virtool.processes.db.register(db, "remote_reference")
+        process = await virtool.processes.db.create(db, "remote_reference")
 
-        document["process"] = {
-            "id": process["id"]
-        }
+        document["process"] = {"id": process["id"]}
 
-        await aiojobs.aiohttp.spawn(req, virtool.references.db.finish_remote(
-            req.app,
-            release,
-            document["_id"],
-            document["created_at"],
-            process["id"],
-            user_id
-        ))
+        await aiojobs.aiohttp.spawn(
+            req,
+            virtool.references.db.finish_remote(
+                req.app,
+                release,
+                document["_id"],
+                document["created_at"],
+                process["id"],
+                user_id,
+            ),
+        )
 
     else:
         document = await virtool.references.db.create_document(
@@ -431,73 +387,50 @@ async def create(req):
             data["organism"],
             data["description"],
             data["data_type"],
-            user_id=req["client"].user_id
+            user_id=req["client"].user_id,
         )
 
     await db.references.insert_one(document)
 
-    headers = {
-        "Location": "/api/refs/" + document["_id"]
-    }
+    headers = {"Location": "/api/refs/" + document["_id"]}
 
     document = await virtool.references.db.attach_computed(db, document)
 
-    return json_response(virtool.utils.base_processor(document), headers=headers, status=201)
+    return json_response(
+        virtool.utils.base_processor(document), headers=headers, status=201
+    )
 
 
-@routes.patch("/api/refs/{ref_id}", schema={
-    "name": {
-        "type": "string",
-        "coerce": virtool.validators.strip,
-        "empty": False
-    },
-    "description": {
-        "type": "string",
-        "coerce": virtool.validators.strip
-    },
-    "organism": {
-        "type": "string",
-        "coerce": virtool.validators.strip
-    },
-    "internal_control": {
-        "type": "string"
-    },
-    "restrict_source_types": {
-        "type": "boolean"
-    },
-    "source_types": {
-        "type": "list",
-        "schema": {
-            "type": "string",
-            "coerce": virtool.validators.strip,
-            "empty": False
-        }
-    },
-    "targets": {
-        "type": "list",
-        "schema": {
-            "type": "dict",
+@routes.patch(
+    "/api/refs/{ref_id}",
+    schema={
+        "name": {"type": "string", "coerce": virtool.validators.strip, "empty": False},
+        "description": {"type": "string", "coerce": virtool.validators.strip},
+        "organism": {"type": "string", "coerce": virtool.validators.strip},
+        "internal_control": {"type": "string"},
+        "restrict_source_types": {"type": "boolean"},
+        "source_types": {
+            "type": "list",
             "schema": {
-                "name": {
-                    "type": "string",
-                    "empty": False,
-                    "required": True
+                "type": "string",
+                "coerce": virtool.validators.strip,
+                "empty": False,
+            },
+        },
+        "targets": {
+            "type": "list",
+            "schema": {
+                "type": "dict",
+                "schema": {
+                    "name": {"type": "string", "empty": False, "required": True},
+                    "description": {"type": "string", "default": ""},
+                    "required": {"type": "boolean", "default": False},
+                    "length": {"type": "integer"},
                 },
-                "description": {
-                    "type": "string",
-                    "default": ""
-                },
-                "required": {
-                    "type": "boolean",
-                    "default": False
-                },
-                "length": {
-                    "type": "integer"
-                }
-            }
-        }
-    }
-})
+            },
+        },
+    },
+)
 async def edit(req):
     db = req.app["db"]
     data = req["data"]
@@ -518,11 +451,7 @@ async def edit(req):
         if len(names) != len(set(names)):
             return bad_request("The targets field may not contain duplicate names")
 
-    document = await virtool.references.db.edit(
-        db,
-        ref_id,
-        data
-    )
+    document = await virtool.references.db.edit(db, ref_id, data)
 
     return json_response(document)
 
@@ -545,24 +474,17 @@ async def remove(req):
 
     user_id = req["client"].user_id
 
-    context = {
-        "ref_id": ref_id,
-        "user_id": user_id
-    }
+    context = {"ref_id": ref_id, "user_id": user_id}
 
-    process = await virtool.processes.db.register(db, "delete_reference", context=context)
+    process = await virtool.processes.db.create(db, "delete_reference", context=context)
 
-    await db.references.delete_one({
-        "_id": ref_id
-    })
+    await db.references.delete_one({"_id": ref_id})
 
     p = virtool.references.db.RemoveReferenceProcess(req.app, process["id"])
 
     await aiojobs.aiohttp.spawn(req, p.run())
 
-    headers = {
-        "Content-Location": f"/api/processes/{process['id']}"
-    }
+    headers = {"Content-Location": f"/api/processes/{process['id']}"}
 
     return json_response(process, 202, headers)
 
@@ -586,7 +508,9 @@ async def get_group(req):
     ref_id = req.match_info["ref_id"]
     group_id = req.match_info["group_id"]
 
-    document = await db.references.find_one({"_id": ref_id, "groups.id": group_id}, ["groups", "users"])
+    document = await db.references.find_one(
+        {"_id": ref_id, "groups.id": group_id}, ["groups", "users"]
+    )
 
     if document is None:
         return not_found()
@@ -597,12 +521,10 @@ async def get_group(req):
                 return json_response(group)
 
 
-@routes.post("/api/refs/{ref_id}/groups", schema={
-    **RIGHTS_SCHEMA, "group_id": {
-        "type": "string",
-        "required": True
-    }
-})
+@routes.post(
+    "/api/refs/{ref_id}/groups",
+    schema={**RIGHTS_SCHEMA, "group_id": {"type": "string", "required": True}},
+)
 async def add_group(req):
     db = req.app["db"]
     data = req["data"]
@@ -617,7 +539,9 @@ async def add_group(req):
         return insufficient_rights()
 
     try:
-        subdocument = await virtool.references.db.add_group_or_user(db, ref_id, "groups", data)
+        subdocument = await virtool.references.db.add_group_or_user(
+            db, ref_id, "groups", data
+        )
     except virtool.errors.DatabaseError as err:
         if "already exists" in str(err):
             return bad_request("Group already exists")
@@ -627,19 +551,15 @@ async def add_group(req):
 
         raise
 
-    headers = {
-        "Location": f"/api/refs/{ref_id}/groups/{subdocument['id']}"
-    }
+    headers = {"Location": f"/api/refs/{ref_id}/groups/{subdocument['id']}"}
 
     return json_response(subdocument, headers=headers, status=201)
 
 
-@routes.post("/api/refs/{ref_id}/users", schema={
-    **RIGHTS_SCHEMA, "user_id": {
-        "type": "string",
-        "required": True
-    }
-})
+@routes.post(
+    "/api/refs/{ref_id}/users",
+    schema={**RIGHTS_SCHEMA, "user_id": {"type": "string", "required": True}},
+)
 async def add_user(req):
     db = req.app["db"]
     data = req["data"]
@@ -654,7 +574,9 @@ async def add_user(req):
         return insufficient_rights()
 
     try:
-        subdocument = await virtool.references.db.add_group_or_user(db, ref_id, "users", data)
+        subdocument = await virtool.references.db.add_group_or_user(
+            db, ref_id, "users", data
+        )
     except virtool.errors.DatabaseError as err:
         if "already exists" in str(err):
             return bad_request("User already exists")
@@ -664,9 +586,7 @@ async def add_user(req):
 
         raise
 
-    headers = {
-        "Location": f"/api/refs/{ref_id}/users/{subdocument['id']}"
-    }
+    headers = {"Location": f"/api/refs/{ref_id}/users/{subdocument['id']}"}
 
     subdocument = await virtool.users.db.attach_identicons(db, subdocument)
 
@@ -680,7 +600,9 @@ async def edit_group(req):
     ref_id = req.match_info["ref_id"]
     group_id = req.match_info["group_id"]
 
-    document = await db.references.find_one({"_id": ref_id, "groups.id": group_id}, ["groups", "users"])
+    document = await db.references.find_one(
+        {"_id": ref_id, "groups.id": group_id}, ["groups", "users"]
+    )
 
     if document is None:
         return not_found()
@@ -688,7 +610,9 @@ async def edit_group(req):
     if not await virtool.references.db.check_right(req, ref_id, "modify"):
         return insufficient_rights()
 
-    subdocument = await virtool.references.db.edit_group_or_user(db, ref_id, group_id, "groups", data)
+    subdocument = await virtool.references.db.edit_group_or_user(
+        db, ref_id, group_id, "groups", data
+    )
 
     return json_response(subdocument)
 
@@ -700,7 +624,9 @@ async def edit_user(req):
     ref_id = req.match_info["ref_id"]
     user_id = req.match_info["user_id"]
 
-    document = await db.references.find_one({"_id": ref_id, "users.id": user_id}, ["groups", "users"])
+    document = await db.references.find_one(
+        {"_id": ref_id, "users.id": user_id}, ["groups", "users"]
+    )
 
     if document is None:
         return not_found()
@@ -708,7 +634,9 @@ async def edit_user(req):
     if not await virtool.references.db.check_right(req, ref_id, "modify"):
         return insufficient_rights()
 
-    subdocument = await virtool.references.db.edit_group_or_user(db, ref_id, user_id, "users", data)
+    subdocument = await virtool.references.db.edit_group_or_user(
+        db, ref_id, user_id, "users", data
+    )
 
     if subdocument is None:
         return not_found()
@@ -724,7 +652,9 @@ async def delete_group(req):
     ref_id = req.match_info["ref_id"]
     group_id = req.match_info["group_id"]
 
-    document = await db.references.find_one({"_id": ref_id, "groups.id": group_id}, ["groups", "users"])
+    document = await db.references.find_one(
+        {"_id": ref_id, "groups.id": group_id}, ["groups", "users"]
+    )
 
     if document is None:
         return not_found()
@@ -743,7 +673,9 @@ async def delete_user(req):
     ref_id = req.match_info["ref_id"]
     user_id = req.match_info["user_id"]
 
-    document = await db.references.find_one({"_id": ref_id, "users.id": user_id}, ["groups", "users"])
+    document = await db.references.find_one(
+        {"_id": ref_id, "users.id": user_id}, ["groups", "users"]
+    )
 
     if document is None:
         return not_found()

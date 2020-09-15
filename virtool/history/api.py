@@ -1,11 +1,17 @@
-import virtool.history.db
-import virtool.references.db
 import virtool.errors
+import virtool.history.db
 import virtool.history.utils
 import virtool.http.routes
 import virtool.otus.utils
+import virtool.references.db
 import virtool.utils
-from virtool.api.response import conflict, insufficient_rights, json_response, no_content, not_found
+from virtool.api.response import (
+    conflict,
+    insufficient_rights,
+    json_response,
+    no_content,
+    not_found,
+)
 
 routes = virtool.http.routes.Routes()
 
@@ -54,7 +60,9 @@ async def revert(req):
     if not document:
         return not_found()
 
-    if not await virtool.references.db.check_right(req, document["reference"]["id"], "modify_otu"):
+    if not await virtool.references.db.check_right(
+        req, document["reference"]["id"], "modify_otu"
+    ):
         return insufficient_rights()
 
     try:

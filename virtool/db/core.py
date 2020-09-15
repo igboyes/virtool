@@ -32,13 +32,13 @@ class Collection:
     """
 
     def __init__(
-            self,
-            name: str,
-            collection: motor.motor_asyncio.AsyncIOMotorCollection,
-            enqueue_change: callable,
-            processor: callable,
-            projection: Union[None, list, dict],
-            silent: bool = False
+        self,
+        name: str,
+        collection: motor.motor_asyncio.AsyncIOMotorCollection,
+        enqueue_change: callable,
+        processor: callable,
+        projection: Union[None, list, dict],
+        silent: bool = False,
     ):
         self.name = name
         self._collection = collection
@@ -87,19 +87,16 @@ class Collection:
         Dispatch updates if the collection is not `silent` and the `silent` parameter is `False`. Applies the collection
         projection and processor.
 
-        :param document_id: the id of the changed document
         :param operation: the operation to label the dispatch with (insert, update, delete)
-        :param silent: don't perform the dispatch
+        :param id_list: the document IDs the queue changes for
 
         """
         if not self.silent:
-            await self._enqueue_change(
-                self.name,
-                operation,
-                id_list
-            )
+            await self._enqueue_change(self.name, operation, id_list)
 
-    async def delete_many(self, query: dict, silent: bool = False) -> pymongo.results.DeleteResult:
+    async def delete_many(
+        self, query: dict, silent: bool = False
+    ) -> pymongo.results.DeleteResult:
         """
         Delete many documents based on the passed `query`.
 
@@ -126,24 +123,23 @@ class Collection:
         :return: the delete result
 
         """
-        document_id = await virtool.db.utils.get_one_field(self._collection, "_id", query)
+        document_id = await virtool.db.utils.get_one_field(
+            self._collection, "_id", query
+        )
         delete_result = await self._collection.delete_one(query)
 
         if not silent and delete_result.deleted_count:
-            await self.enqueue_change(
-                "delete",
-                document_id
-            )
+            await self.enqueue_change("delete", document_id)
 
         return delete_result
 
     async def find_one_and_update(
-            self,
-            query: dict,
-            update: dict,
-            projection: Union[None, dict, list] = None,
-            silent: bool = False,
-            upsert: bool = False
+        self,
+        query: dict,
+        update: dict,
+        projection: Union[None, dict, list] = None,
+        silent: bool = False,
+        upsert: bool = False,
     ):
         """
         Update a document and return the updated result.
@@ -157,10 +153,7 @@ class Collection:
 
         """
         document = await self._collection.find_one_and_update(
-            query,
-            update,
-            return_document=pymongo.ReturnDocument.AFTER,
-            upsert=upsert
+            query, update, return_document=pymongo.ReturnDocument.AFTER, upsert=upsert
         )
 
         if document is None:
@@ -201,17 +194,19 @@ class Collection:
             raise
 
     async def replace_one(self, query, replacement, upsert=False):
+        """
+
+
+        :param query:
+        :param replacement:
+        :param upsert:
+        :return:
+        """
         document = await self._collection.find_one_and_replace(
-            query,
-            replacement,
-            projection=self.projection,
-            upsert=upsert
+            query, replacement, projection=self.projection, upsert=upsert
         )
 
-        await self.enqueue_change(
-            "update",
-            replacement["_id"]
-        )
+        await self.enqueue_change("update", replacement["_id"])
 
         return document
 
@@ -220,10 +215,7 @@ class Collection:
         update_result = await self._collection.update_many(query, update)
 
         if not silent:
-            await self.enqueue_change(
-                "update",
-                *updated_ids
-            )
+            await self.enqueue_change("update", *updated_ids)
 
         return update_result
 
@@ -232,114 +224,81 @@ class Collection:
         update_result = await self._collection.update_one(query, update, upsert=upsert)
 
         if not silent and document:
-            await self.enqueue_change(
-                "update",
-                document["_id"]
-            )
+            await self.enqueue_change("update", document["_id"])
 
         return update_result
 
 
 class DB:
-
     def __init__(self, client, enqueue_change):
         self.motor_client = client
         self.enqueue_change = enqueue_change
 
         self.analyses = self.bind_collection(
-            "analyses",
-            projection=virtool.analyses.db.PROJECTION
+            "analyses", projection=virtool.analyses.db.PROJECTION
         )
 
         self.caches = self.bind_collection(
-            "caches",
-            projection=virtool.caches.db.PROJECTION
+            "caches", projection=virtool.caches.db.PROJECTION
         )
 
-        self.coverage = self.bind_collection(
-            "coverage",
-            silent=True
-        )
+        self.coverage = self.bind_collection("coverage", silent=True)
 
         self.files = self.bind_collection(
-            "files",
-            projection=virtool.files.db.PROJECTION
+            "files", projection=virtool.files.db.PROJECTION
         )
 
         self.groups = self.bind_collection("groups")
 
         self.history = self.bind_collection(
-            "history",
-            projection=virtool.history.db.PROJECTION
+            "history", projection=virtool.history.db.PROJECTION
         )
 
-        self.hmm = self.bind_collection(
-            "hmm",
-            projection=virtool.hmm.db.PROJECTION
-        )
+        self.hmm = self.bind_collection("hmm", projection=virtool.hmm.db.PROJECTION)
 
         self.indexes = self.bind_collection(
-            "indexes",
-            projection=virtool.indexes.db.PROJECTION
+            "indexes", projection=virtool.indexes.db.PROJECTION
         )
 
         self.jobs = self.bind_collection(
             "jobs",
             projection=virtool.jobs.db.PROJECTION,
-            processor=virtool.jobs.db.processor
+            processor=virtool.jobs.db.processor,
         )
 
-        self.keys = self.bind_collection(
-            "keys",
-            silent=True
-        )
+        self.keys = self.bind_collection("keys", silent=True)
 
-        self.kinds = self.bind_collection(
-            "kinds",
-            silent=True
-        )
+        self.kinds = self.bind_collection("kinds", silent=True)
 
-        self.otus = self.bind_collection(
-            "otus",
-            projection=virtool.otus.db.PROJECTION
-        )
+        self.otus = self.bind_collection("otus", projection=virtool.otus.db.PROJECTION)
 
-        self.processes = self.bind_collection(
-            "processes"
-        )
+        self.processes = self.bind_collection("processes")
 
         self.references = self.bind_collection(
             "references",
             processor=virtool.references.db.processor,
-            projection=virtool.references.db.PROJECTION
+            projection=virtool.references.db.PROJECTION,
         )
 
         self.samples = self.bind_collection(
-            "samples",
-            projection=virtool.samples.db.LIST_PROJECTION
+            "samples", projection=virtool.samples.db.LIST_PROJECTION
         )
         self.settings = self.bind_collection(
-            "settings",
-            projection=virtool.settings.db.PROJECTION
+            "settings", projection=virtool.settings.db.PROJECTION
         )
 
         self.sequences = self.bind_collection("sequences")
 
-        self.sessions = self.bind_collection(
-            "sessions",
-            silent=True
-        )
+        self.sessions = self.bind_collection("sessions", silent=True)
 
         self.status = self.bind_collection("status")
 
         self.subtraction = self.bind_collection(
-            "subtraction",
-            projection=virtool.subtractions.db.PROJECTION
+            "subtraction", projection=virtool.subtractions.db.PROJECTION
         )
 
         self.users = self.bind_collection(
-            "users",
-            projection=virtool.users.db.PROJECTION
+            "users", projection=virtool.users.db.PROJECTION
         )
 
     def bind_collection(self, name, processor=None, projection=None, silent=False):
@@ -349,7 +308,7 @@ class DB:
             self.enqueue_change,
             processor,
             projection,
-            silent
+            silent,
         )
 
     def get_processor(self, collection_name):

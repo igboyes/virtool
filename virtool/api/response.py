@@ -1,8 +1,16 @@
+"""
+Shortcut functions for creating aiohttp web response objects.
+
+"""
+import typing
+
 from aiohttp import web
 from typing import Optional
 
 
-def json_response(data: dict, status: int = 200, headers: Optional[dict] = None) -> web.Response:
+def json_response(
+    data: typing.Union[dict, list], status: int = 200, headers: Optional[dict] = None
+) -> web.Response:
     """
     Return a response object whose attached JSON dict will be formatted by middleware depending on the request's
     `Accept` header.
@@ -44,10 +52,7 @@ def bad_gateway(message: str = "Bad gateway") -> web.Response:
     :return: the response
 
     """
-    return json_response({
-        "id": "bad_gateway",
-        "message": message
-    }, status=502)
+    return json_response({"id": "bad_gateway", "message": message}, status=502)
 
 
 def bad_request(message: str = "Bad request") -> web.Response:
@@ -59,10 +64,7 @@ def bad_request(message: str = "Bad request") -> web.Response:
     :return: the response
 
     """
-    return json_response({
-        "id": "bad_request",
-        "message": message
-    }, status=400)
+    return json_response({"id": "bad_request", "message": message}, status=400)
 
 
 def insufficient_rights(message: str = "Insufficient rights") -> web.Response:
@@ -74,10 +76,7 @@ def insufficient_rights(message: str = "Insufficient rights") -> web.Response:
     :return: the response
 
     """
-    return json_response({
-        "id": "insufficient_rights",
-        "message": message
-    }, status=403)
+    return json_response({"id": "insufficient_rights", "message": message}, status=403)
 
 
 def not_found(message: str = "Not found") -> web.Response:
@@ -89,10 +88,7 @@ def not_found(message: str = "Not found") -> web.Response:
     :return: the response
 
     """
-    return json_response({
-        "id": "not_found",
-        "message": message
-    }, status=404)
+    return json_response({"id": "not_found", "message": message}, status=404)
 
 
 def conflict(message: str = "Conflict") -> web.Response:
@@ -104,10 +100,7 @@ def conflict(message: str = "Conflict") -> web.Response:
     :return: the response
 
     """
-    return json_response({
-        "id": "conflict",
-        "message": message
-    }, status=409)
+    return json_response({"id": "conflict", "message": message}, status=409)
 
 
 def invalid_input(errors: dict) -> web.Response:
@@ -119,11 +112,10 @@ def invalid_input(errors: dict) -> web.Response:
     :return: the response
 
     """
-    return json_response({
-        "id": "invalid_input",
-        "message": "Invalid input",
-        "errors": errors
-    }, status=422)
+    return json_response(
+        {"id": "invalid_input", "message": "Invalid input", "errors": errors},
+        status=422,
+    )
 
 
 def invalid_query(errors: dict) -> web.Response:
@@ -135,8 +127,7 @@ def invalid_query(errors: dict) -> web.Response:
     :return: the response
 
     """
-    return json_response({
-        "id": "invalid_query",
-        "message": "Invalid query",
-        "errors": errors
-    }, status=422)
+    return json_response(
+        {"id": "invalid_query", "message": "Invalid query", "errors": errors},
+        status=422,
+    )

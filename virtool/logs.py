@@ -12,14 +12,13 @@ def configure(config):
 
     log_format = "%(asctime)-20s %(module)-11s %(levelname)-8s %(message)s"
 
-    coloredlogs.install(
-        level=logging_level,
-        fmt=log_format
-    )
+    coloredlogs.install(level=logging_level, fmt=log_format)
 
     logger = logging.getLogger()
 
-    handler = logging.handlers.RotatingFileHandler("virtool.log", maxBytes=1000000, backupCount=5)
+    handler = logging.handlers.RotatingFileHandler(
+        "virtool.log", maxBytes=1000000, backupCount=5
+    )
     handler.setFormatter(logging.Formatter(log_format))
 
     logger.addHandler(handler)

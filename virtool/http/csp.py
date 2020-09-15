@@ -1,3 +1,16 @@
+"""
+Functions and constants for constructing the Virtool Content Security Policy (CSP). Nonces are used to allow safe inline
+blocks.
+
+A nonce is generated when a request is received and attached to the nonce as a `dict` value.
+
+The nonce is used in :func:`virtool.auth.index_handler` when rendering the application HTML to allow inline scripts. The
+nonce is added to the CSP header when preparing the response in :func:`.on_prepare`).
+
+Content Security Policy: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
+Info on Nonces: https://content-security-policy.com/nonce/
+
+"""
 import secrets
 import aiohttp.web
 
@@ -16,14 +29,16 @@ def generate_csp_header(nonce: str) -> str:
     :return: CSP policy value
 
     """
-    return "; ".join([
-        CSP_CONNECT_SRC,
-        CSP_DEFAULT_SRC,
-        CSP_FONT_SRC,
-        CSP_IMG_SRC,
-        generate_csp_script_src(nonce),
-        generate_csp_style_src(nonce)
-    ])
+    return "; ".join(
+        [
+            CSP_CONNECT_SRC,
+            CSP_DEFAULT_SRC,
+            CSP_FONT_SRC,
+            CSP_IMG_SRC,
+            generate_csp_script_src(nonce),
+            generate_csp_style_src(nonce),
+        ]
+    )
 
 
 def generate_csp_script_src(nonce: str) -> str:
@@ -58,7 +73,17 @@ def generate_nonce() -> str:
 
 
 @aiohttp.web.middleware
-async def middleware(req: aiohttp.web.Request, handler):
+async def middleware(
+    req: aiohttp.web.Request, handler: callable
+) -> aiohttp.web.Response:
+    """
+    AIOHTTP middleware for adding a nonce value to the :class:`aiohttp.web.Request object`.
+
+    :param req: the request to handle
+    :param handler: the next handler
+    :return: a response
+
+    """
     # Allow the nonce to be accessed from request handlers and signals. The index handler will add the nonce to the
     # index.html template.
     req["nonce"] = generate_nonce()

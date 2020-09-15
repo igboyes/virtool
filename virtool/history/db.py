@@ -1,3 +1,4 @@
+import typing
 from copy import deepcopy
 from typing import Union, List
 
@@ -8,6 +9,7 @@ import virtool.otus.db
 import virtool.errors
 import virtool.history.utils
 import virtool.otus.utils
+import virtool.types
 import virtool.utils
 from virtool.api.utils import paginate
 
@@ -17,7 +19,7 @@ MOST_RECENT_PROJECTION = [
     "method_name",
     "user",
     "otu",
-    "created_at"
+    "created_at",
 ]
 
 LIST_PROJECTION = [
@@ -28,22 +30,20 @@ LIST_PROJECTION = [
     "index",
     "otu",
     "reference",
-    "user"
+    "user",
 ]
 
-PROJECTION = LIST_PROJECTION + [
-    "diff"
-]
+PROJECTION = LIST_PROJECTION + ["diff"]
 
 
 async def add(
-        app,
-        method_name: str,
-        old: Union[None, dict],
-        new: Union[None, dict],
-        description: str,
-        user_id: str,
-        silent: bool = False
+    app,
+    method_name: str,
+    old: Union[None, dict],
+    new: Union[None, dict],
+    description: str,
+    user_id: str,
+    silent: bool = False,
 ) -> dict:
     """
     Add a change document to the history collection.
@@ -60,28 +60,22 @@ async def add(
     """
     db = app["db"]
 
-    otu_id, otu_name, otu_version, ref_id = virtool.history.utils.derive_otu_information(old, new)
+    (
+        otu_id,
+        otu_name,
+        otu_version,
+        ref_id,
+    ) = virtool.history.utils.derive_otu_information(old, new)
 
     document = {
         "_id": ".".join([str(otu_id), str(otu_version)]),
         "method_name": method_name,
         "description": description,
         "created_at": virtool.utils.timestamp(),
-        "otu": {
-            "id": otu_id,
-            "name": otu_name,
-            "version": otu_version
-        },
-        "reference": {
-            "id": ref_id
-        },
-        "index": {
-            "id": "unbuilt",
-            "version": "unbuilt"
-        },
-        "user": {
-            "id": user_id
-        }
+        "otu": {"id": otu_id, "name": otu_name, "version": otu_version},
+        "reference": {"id": ref_id},
+        "index": {"id": "unbuilt", "version": "unbuilt"},
+        "user": {"id": user_id},
     }
 
     if method_name == "create":
@@ -97,10 +91,7 @@ async def add(
         await db.history.insert_one(document, silent=silent)
     except pymongo.errors.DocumentTooLarge:
         await virtool.history.utils.write_diff_file(
-            app["settings"]["data_path"],
-            otu_id,
-            otu_version,
-            document["diff"]
+            app["settings"]["data_path"], otu_id, otu_version, document["diff"]
         )
 
         await db.history.insert_one(dict(document, diff="file"), silent=silent)
@@ -108,7 +99,17 @@ async def add(
     return document
 
 
-async def find(db, req_query, base_query=None):
+async def find(db, req_query: dict, base_query: typing.Optional[dict] = None) -> dict:
+    """
+    Find history documents.
+
+    :param db: the application database object
+    :param req_query: the URL query (used for paging)
+    :param base_query: the base query (filters total documents)
+    :return: the search data to return
+
+    """
+
     data = await paginate(
         db.history,
         {},
@@ -116,13 +117,13 @@ async def find(db, req_query, base_query=None):
         base_query=base_query,
         sort="otu.version",
         projection=LIST_PROJECTION,
-        reverse=True
+        reverse=True,
     )
 
     return data
 
 
-async def get(app, change_id: str) -> dict:
+async def get(app: virtool.types.App, change_id: str) -> dict:
     """
     Get a complete history document identified by the passed `changed_id`.
 
@@ -139,9 +140,7 @@ async def get(app, change_id: str) -> dict:
         otu_id, otu_version = change_id.split(".")
 
         document["diff"] = await virtool.history.utils.read_diff_file(
-            app["settings"]["data_path"],
-            otu_id,
-            otu_version
+            app["settings"]["data_path"], otu_id, otu_version
         )
 
     return virtool.utils.base_processor(document)
@@ -156,13 +155,9 @@ async def get_contributors(db, query: dict) -> List[dict]:
     :return: a list of contributors to the scanned history changes
 
     """
-    cursor = db.history.aggregate([
-        {"$match": query},
-        {"$group": {
-            "_id": "$user.id",
-            "count": {"$sum": 1}
-        }}
-    ])
+    cursor = db.history.aggregate(
+        [{"$match": query}, {"$group": {"_id": "$user.id", "count": {"$sum": 1}}}]
+    )
 
     return [{"id": c["_id"], "count": c["count"]} async for c in cursor]
 
@@ -176,13 +171,14 @@ async def get_most_recent_change(db, otu_id: str) -> dict:
     :return: the most recent change document
 
     """
-    return await db.history.find_one({
-        "otu.id": otu_id,
-        "index.id": "unbuilt"
-    }, MOST_RECENT_PROJECTION, sort=[("otu.version", -1)])
+    return await db.history.find_one(
+        {"otu.id": otu_id, "index.id": "unbuilt"},
+        MOST_RECENT_PROJECTION,
+        sort=[("otu.version", -1)],
+    )
 
 
-async def patch_to_verified(app, otu_id: str) -> Union[dict, None]:
+async def patch_to_verified(app: virtool.types.App, otu_id: str) -> Union[dict, None]:
     """
     Patch the OTU identified by `otu_id` to the last verified version.
 
@@ -203,9 +199,7 @@ async def patch_to_verified(app, otu_id: str) -> Union[dict, None]:
     async for change in db.history.find({"otu.id": otu_id}, sort=[("otu.version", -1)]):
         if change["diff"] == "file":
             change["diff"] = await virtool.history.utils.read_diff_file(
-                app["settings"]["data_path"],
-                otu_id,
-                change["otu"]["version"]
+                app["settings"]["data_path"], otu_id, change["otu"]["version"]
             )
 
         if change["method_name"] == "remove":
@@ -222,7 +216,9 @@ async def patch_to_verified(app, otu_id: str) -> Union[dict, None]:
             return patched
 
 
-async def patch_to_version(app, otu_id: str, version: Union[str, int]) -> tuple:
+async def patch_to_version(
+    app: virtool.types.App, otu_id: str, version: Union[str, int]
+) -> tuple:
     """
     Take a joined otu back in time to the passed ``version``. Uses the diffs in the change documents associated with
     the otu.
@@ -252,9 +248,7 @@ async def patch_to_version(app, otu_id: str, version: Union[str, int]) -> tuple:
 
             if change["diff"] == "file":
                 change["diff"] = await virtool.history.utils.read_diff_file(
-                    app["settings"]["data_path"],
-                    otu_id,
-                    change["otu"]["version"]
+                    app["settings"]["data_path"], otu_id, change["otu"]["version"]
                 )
 
             if change["method_name"] == "remove":
@@ -275,7 +269,7 @@ async def patch_to_version(app, otu_id: str, version: Union[str, int]) -> tuple:
     return current, patched, reverted_history_ids
 
 
-async def revert(app, change_id: str) -> dict:
+async def revert(app: virtool.types.App, change_id: str) -> dict:
     """
     Revert a history change given by the passed ``change_id``.
 
@@ -289,18 +283,16 @@ async def revert(app, change_id: str) -> dict:
     change = await db.history.find_one({"_id": change_id}, ["index"])
 
     if change["index"]["id"] != "unbuilt" or change["index"]["version"] != "unbuilt":
-        raise virtool.errors.DatabaseError("Change is included in a build an not revertible")
+        raise virtool.errors.DatabaseError(
+            "Change is included in a build an not revertible"
+        )
 
     otu_id, otu_version = change_id.split(".")
 
     if otu_version != "removed":
         otu_version = int(otu_version)
 
-    _, patched, history_to_delete = await patch_to_version(
-        app,
-        otu_id,
-        otu_version - 1
-    )
+    _, patched, history_to_delete = await patch_to_version(app, otu_id, otu_version - 1)
 
     # Remove the old sequences from the collection.
     await db.sequences.delete_many({"otu_id": otu_id})

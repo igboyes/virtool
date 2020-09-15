@@ -29,6 +29,13 @@ routes = virtool.http.routes.Routes()
 
 @routes.get("/download/analyses/{analysis_id}.{extension}")
 async def download_analysis(req):
+    """
+    Download an analysis in either Excel or CSV format. The format is inferred from the URL suffix:
+
+    CSV: eg. /download/analyses/foo.csv
+    XSLX: eg. /download/analyses/foo.xslx
+
+    """
     db = req.app["db"]
 
     analysis_id = req.match_info["analysis_id"]
@@ -37,11 +44,13 @@ async def download_analysis(req):
     document = await db.analyses.find_one(analysis_id)
 
     if extension == "xlsx":
-        formatted = await virtool.analyses.format.format_analysis_to_excel(req.app, document)
+        formatted = await virtool.analyses.format.format_analysis_to_excel(
+            req.app, document
+        )
 
         headers = {
             "Content-Disposition": f"attachment; filename={analysis_id}.xlsx",
-            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         }
 
         return web.Response(body=formatted, headers=headers)
@@ -50,14 +59,21 @@ async def download_analysis(req):
 
     headers = {
         "Content-Disposition": f"attachment; filename={analysis_id}.csv",
-        "Content-Type": "text/csv"
+        "Content-Type": "text/csv",
     }
 
     return web.Response(text=formatted, headers=headers)
 
 
-@routes.get(r"/download/samples/{sample_id}/{prefix}_{suffix}.{extension:(fq|fastq|fq\.gz|fastq\.gz)}")
+@routes.get(
+    r"/download/samples/{sample_id}/{prefix}_{suffix}.{extension:(fq|fastq|fq\.gz|fastq\.gz)}"
+)
 async def download_sample_reads(req):
+    """
+    Download the raw reads for a sample. Handles legacy (trimmed reads retained) and current (raw reads retained) sample
+    styles.
+
+    """
     db = req.app["db"]
 
     sample_id = req.match_info["sample_id"]
@@ -81,12 +97,9 @@ async def download_sample_reads(req):
 
     file_stats = virtool.utils.file_stats(path)
 
-    headers = {
-        "Content-Length": file_stats["size"],
-        "Content-Type": "application/gzip"
-    }
+    headers = {"Content-Length": file_stats["size"], "Content-Type": "application/gzip"}
 
-    return web.FileResponse(path, chunk_size=1024*1024, headers=headers)
+    return web.FileResponse(path, chunk_size=1024 * 1024, headers=headers)
 
 
 @routes.get("/download/otus/{otu_id}/isolates/{isolate_id}")
@@ -101,7 +114,9 @@ async def download_isolate(req):
     isolate_id = req.match_info["isolate_id"]
 
     try:
-        filename, fasta = await virtool.downloads.db.generate_isolate_fasta(db, otu_id, isolate_id)
+        filename, fasta = await virtool.downloads.db.generate_isolate_fasta(
+            db, otu_id, isolate_id
+        )
     except virtool.errors.DatabaseError as err:
         if "OTU does not exist" in str(err):
             return virtool.api.response.not_found("OTU not found")
@@ -111,9 +126,9 @@ async def download_isolate(req):
 
         raise
 
-    return web.Response(text=fasta, headers={
-        "Content-Disposition": f"attachment; filename={filename}"
-    })
+    return web.Response(
+        text=fasta, headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 
 @routes.get("/download/otus/{otu_id}")
@@ -140,9 +155,9 @@ async def download_otu(req):
     if not fasta:
         return web.Response(status=404)
 
-    return web.Response(text=fasta, headers={
-        "Content-Disposition": f"attachment; filename={filename}"
-    })
+    return web.Response(
+        text=fasta, headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 
 @routes.get("/download/refs/{ref_id}")
@@ -155,20 +170,19 @@ async def download_reference(req):
     db = req.app["db"]
     ref_id = req.match_info["ref_id"]
 
-    document = await db.references.find_one(ref_id, ["data_type", "organism", "targets"])
+    document = await db.references.find_one(
+        ref_id, ["data_type", "organism", "targets"]
+    )
 
     if document is None:
         return virtool.api.response.not_found()
 
-    otu_list = await virtool.references.db.export(
-        req.app,
-        ref_id
-    )
+    otu_list = await virtool.references.db.export(req.app, ref_id)
 
     data = {
         "otus": otu_list,
         "data_type": document["data_type"],
-        "organism": document["organism"]
+        "organism": document["organism"],
     }
 
     try:
@@ -185,7 +199,7 @@ async def download_reference(req):
     return web.Response(
         headers={"Content-Disposition": f"attachment; filename=reference.json.gz"},
         content_type="application/gzip",
-        body=body
+        body=body,
     )
 
 
@@ -200,7 +214,9 @@ async def download_sequence(req):
     sequence_id = req.match_info["sequence_id"]
 
     try:
-        filename, fasta = await virtool.downloads.db.generate_sequence_fasta(db, sequence_id)
+        filename, fasta = await virtool.downloads.db.generate_sequence_fasta(
+            db, sequence_id
+        )
     except virtool.errors.DatabaseError as err:
         if "Sequence does not exist" in str(err):
             return virtool.api.response.not_found("Sequence not found")
@@ -216,6 +232,6 @@ async def download_sequence(req):
     if fasta is None:
         return web.Response(status=404)
 
-    return web.Response(text=fasta, headers={
-        "Content-Disposition": f"attachment; filename={filename}"
-    })
+    return web.Response(
+        text=fasta, headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )

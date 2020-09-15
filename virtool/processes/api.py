@@ -7,6 +7,10 @@ routes = virtool.http.routes.Routes()
 
 @routes.get("/api/processes")
 async def find(req):
+    """
+    List all processes on the instance.
+
+    """
     db = req.app["db"]
 
     documents = [virtool.utils.base_processor(d) async for d in db.processes.find()]
@@ -16,6 +20,10 @@ async def find(req):
 
 @routes.get("/api/processes/{process_id}")
 async def get(req):
+    """
+    Get a complete representation of the process identified by `process_id`.
+
+    """
     db = req.app["db"]
 
     process_id = req.match_info["process_id"]

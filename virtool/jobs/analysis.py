@@ -4,6 +4,7 @@ import logging
 import os
 import pathlib
 import shutil
+import typing
 
 import pymongo.errors
 
@@ -26,9 +27,11 @@ TRIMMING_PROGRAM = "skewer-0.2.2"
 logger = logging.getLogger(__name__)
 
 
-async def check_db(job):
+async def check_db(job: virtool.jobs.job.Job):
     """
-    Get some initial information from the database that will be required during the course of the job.
+    Get some initial information from the database that will be required during the course of the job. Attach the data to the job object.
+
+    :param job: the job object
 
     """
     logger.debug("Retrieving job parameters")
@@ -36,10 +39,8 @@ async def check_db(job):
     job.params = {
         # The document id for the sample being analyzed. and the analysis document the results will be committed to.
         "sample_id": job.task_args["sample_id"],
-
         # The document id for the reference to analyze against.
         "ref_id": job.task_args["ref_id"],
-
         # The document id for the analysis being run.
         "analysis_id": job.task_args["analysis_id"],
     }
@@ -48,42 +49,46 @@ async def check_db(job):
     sample = await job.db.samples.find_one(job.params["sample_id"])
 
     # The parent folder for all data associated with the sample
-    sample_path = os.path.join(job.settings["data_path"], "samples", job.params["sample_id"])
+    sample_path = os.path.join(
+        job.settings["data_path"], "samples", job.params["sample_id"]
+    )
 
     analysis_path = os.path.join(sample_path, "analysis", job.params["analysis_id"])
 
-    analysis = await job.db.analyses.find_one(job.params["analysis_id"], ["subtraction"])
+    analysis = await job.db.analyses.find_one(
+        job.params["analysis_id"], ["subtraction"]
+    )
 
     temp_analysis_path = os.path.join(job.temp_dir.name, job.task_args["analysis_id"])
 
-    job.params.update({
-        # The path to the directory where all analysis result files will be written.
-        "analysis_path": analysis_path,
-        "index_path": os.path.join(
-            job.settings["data_path"],
-            "references",
-            job.params["ref_id"],
-            job.task_args["index_id"],
-            "reference"
-        ),
-        "sample_path": sample_path,
-        "paired": sample["paired"],
-        #: The number of reads in the sample library. Assigned after database connection is made.
-        "read_count": int(sample["quality"]["count"]),
-        "sample_read_length": int(sample["quality"]["length"][1]),
-        "library_type": sample["library_type"],
-        "reads_path": os.path.join(job.temp_dir.name, "reads"),
-        "subtraction_path": virtool.subtractions.utils.join_subtraction_index_path(job.settings, analysis["subtraction"]["id"]),
-        "raw_path": os.path.join(job.temp_dir.name, "raw"),
-        "temp_cache_path": os.path.join(job.temp_dir.name, "cache"),
-        "temp_analysis_path": temp_analysis_path
-    })
-
-    index_info = await get_index_info(
-        job.db,
-        job.settings,
-        job.task_args["index_id"]
+    job.params.update(
+        {
+            # The path to the directory where all analysis result files will be written.
+            "analysis_path": analysis_path,
+            "index_path": os.path.join(
+                job.settings["data_path"],
+                "references",
+                job.params["ref_id"],
+                job.task_args["index_id"],
+                "reference",
+            ),
+            "sample_path": sample_path,
+            "paired": sample["paired"],
+            #: The number of reads in the sample library. Assigned after database connection is made.
+            "read_count": int(sample["quality"]["count"]),
+            "sample_read_length": int(sample["quality"]["length"][1]),
+            "library_type": sample["library_type"],
+            "reads_path": os.path.join(job.temp_dir.name, "reads"),
+            "subtraction_path": virtool.subtractions.utils.join_subtraction_index_path(
+                job.settings, analysis["subtraction"]["id"]
+            ),
+            "raw_path": os.path.join(job.temp_dir.name, "raw"),
+            "temp_cache_path": os.path.join(job.temp_dir.name, "cache"),
+            "temp_analysis_path": temp_analysis_path,
+        }
     )
+
+    index_info = await get_index_info(job.db, job.settings, job.task_args["index_id"])
 
     job.params.update(index_info)
 
@@ -107,22 +112,17 @@ async def make_analysis_dir(job):
 
 async def prepare_reads(job):
     """
-    Fetch cache
+    Fetch cache.
 
     """
     paired = job.params["paired"]
 
     parameters = get_trimming_parameters(
-        paired,
-        job.params["library_type"],
-        job.params["sample_read_length"]
+        paired, job.params["library_type"], job.params["sample_read_length"]
     )
 
     cache = await virtool.caches.db.find(
-        job.db,
-        job.params["sample_id"],
-        TRIMMING_PROGRAM,
-        parameters
+        job.db, job.params["sample_id"], TRIMMING_PROGRAM, parameters
     )
 
     if cache:
@@ -153,7 +153,13 @@ async def delete_analysis(job):
     await virtool.samples.db.recalculate_workflow_tags(job.db, job.params["sample_id"])
 
 
-async def delete_cache(job):
+async def delete_cache(job: virtool.jobs.job.Job):
+    """
+    Delete the cache associated with the passed `job`.
+
+    :param job: the job object
+
+    """
     cache_id = job.intermediate.get("cache_id")
 
     if cache_id:
@@ -165,16 +171,19 @@ async def delete_cache(job):
             cache_path = virtool.caches.utils.join_cache_path(job.settings, cache_id)
 
             try:
-                await job.run_in_executor(
-                    virtool.utils.rm,
-                    cache_path,
-                    True
-                )
+                await job.run_in_executor(virtool.utils.rm, cache_path, True)
             except FileNotFoundError:
                 pass
 
 
-async def fetch_cache(job, cache):
+async def fetch_cache(job: virtool.jobs.job.Job, cache: dict):
+    """
+    Copy the cache files for the passed `job` to the analysis directory.
+
+    :param job: the job the files are required for
+    :param cache: the cache document for the job
+
+    """
     cached_read_paths = virtool.caches.utils.join_cache_read_paths(job.settings, cache)
 
     coros = list()
@@ -192,33 +201,21 @@ async def fetch_legacy(job, legacy_read_paths):
     coros = list()
 
     for path in legacy_read_paths:
-        local_path = os.path.join(
-            job.params["reads_path"],
-            pathlib.Path(path).name
-        )
+        local_path = os.path.join(job.params["reads_path"], pathlib.Path(path).name)
 
-        coros.append(job.run_in_executor(
-            shutil.copy,
-            path,
-            local_path
-        ))
+        coros.append(job.run_in_executor(shutil.copy, path, local_path))
 
     await asyncio.gather(*coros)
 
 
 async def get_sequence_otu_map(db, settings, manifest):
-    app_dict = {
-        "db": db,
-        "settings": settings
-    }
+    app_dict = {"db": db, "settings": settings}
 
     sequence_otu_map = dict()
 
     for otu_id, otu_version in manifest.items():
         _, patched, _ = await virtool.history.db.patch_to_version(
-            app_dict,
-            otu_id,
-            otu_version
+            app_dict, otu_id, otu_version
         )
 
         for isolate in patched["isolates"]:
@@ -229,17 +226,18 @@ async def get_sequence_otu_map(db, settings, manifest):
     return sequence_otu_map
 
 
-def copy_trimming_results(src, dest):
-    shutil.copy(
-        os.path.join(src, "reads_1.fq.gz"),
-        dest
-    )
+def copy_trimming_results(src: str, dest: str):
+    """
+    Copy read files resulting from trimming from the `src` directory to the `dest` directory.
+
+    :param src: the path to the source directory
+    :param dest: the path to the destination directory
+
+    """
+    shutil.copy(os.path.join(src, "reads_1.fq.gz"), dest)
 
     try:
-        shutil.copy(
-            os.path.join(src, "reads_2.fq.gz"),
-            dest
-        )
+        shutil.copy(os.path.join(src, "reads_2.fq.gz"), dest)
     except FileNotFoundError:
         pass
 
@@ -264,15 +262,10 @@ async def get_index_info(db, settings, index_id):
         sequence_otu_map = document["sequence_otu_map"]
     except KeyError:
         sequence_otu_map = await get_sequence_otu_map(
-            db,
-            settings,
-            document["manifest"]
+            db, settings, document["manifest"]
         )
 
-    return {
-        "manifest": document["manifest"],
-        "sequence_otu_map": sequence_otu_map
-    }
+    return {"manifest": document["manifest"], "sequence_otu_map": sequence_otu_map}
 
 
 def get_trimming_parameters(paired: bool, library_type: str, sample_read_length: int):
@@ -291,46 +284,54 @@ def get_trimming_parameters(paired: bool, library_type: str, sample_read_length:
             **virtool.samples.utils.TRIM_PARAMETERS,
             "end_quality": 0,
             "mean_quality": 0,
-            "min_length": min_length
+            "min_length": min_length,
         }
 
     if library_type == "srna":
         return {
             **virtool.samples.utils.TRIM_PARAMETERS,
             "min_length": 20,
-            "max_length": 22
+            "max_length": 22,
         }
 
-    return {
-        **virtool.samples.utils.TRIM_PARAMETERS,
-        "min_length": min_length
-    }
+    return {**virtool.samples.utils.TRIM_PARAMETERS, "min_length": min_length}
 
 
-async def set_analysis_results(db, analysis_id, analysis_path, results):
+async def set_analysis_results(
+    db, analysis_id: str, analysis_path: str, results: typing.Union[dict, list]
+):
+    """
+    Save the analysis results to the database document or write them to disc if the document size limit is encountered.
+
+    :param db: the application database object
+    :param analysis_id: the ID of the analysis being saved
+    :param analysis_path: the path to the analysis
+    :param results: the results data
+
+    """
     try:
-        await db.analyses.update_one({"_id": analysis_id}, {
-            "$set": {
-                "results": results,
-                "ready": True
-            }
-        })
+        await db.analyses.update_one(
+            {"_id": analysis_id}, {"$set": {"results": results, "ready": True}}
+        )
     except pymongo.errors.DocumentTooLarge:
         with open(os.path.join(analysis_path, "results.json"), "w") as f:
             json_string = json.dumps(results)
             f.write(json_string)
 
-        await db.analyses.update_one({"_id": analysis_id}, {
-            "$set": {
-                "results": "file",
-                "ready": True
-            }
-        })
+        await db.analyses.update_one(
+            {"_id": analysis_id}, {"$set": {"results": "file", "ready": True}}
+        )
 
 
-async def upload(job):
+async def upload(job: virtool.jobs.job.Job):
+    """
+    Upload the temporary analysis job data path to the permanent analysis path.
+
+    Eventually this needs to be changed to have the data path compressed and uploaded to an object storage service.
+
+    :param job: the job to upload data for
+
+    """
     await job.run_in_executor(
-        shutil.copytree,
-        job.params["temp_analysis_path"],
-        job.params["analysis_path"]
+        shutil.copytree, job.params["temp_analysis_path"], job.params["analysis_path"]
     )

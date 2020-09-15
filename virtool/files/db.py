@@ -10,16 +10,7 @@ import virtool.utils
 
 logger = logging.getLogger(__name__)
 
-PROJECTION = [
-    "_id",
-    "name",
-    "size",
-    "user",
-    "uploaded_at",
-    "type",
-    "ready",
-    "reserved"
-]
+PROJECTION = ["_id", "name", "size", "user", "uploaded_at", "type", "ready", "reserved"]
 
 
 async def generate_file_id(db, filename: str) -> str:
@@ -41,7 +32,13 @@ async def generate_file_id(db, filename: str) -> str:
     return file_id
 
 
-async def create(db, filename: str, file_type: str, reserved: bool = False, user_id: Union[None, str] = None):
+async def create(
+    db,
+    filename: str,
+    file_type: str,
+    reserved: bool = False,
+    user_id: Union[None, str] = None,
+):
     """
     Create a new file document.
 
@@ -65,9 +62,7 @@ async def create(db, filename: str, file_type: str, reserved: bool = False, user
     user = None
 
     if user_id is not None:
-        user = {
-            "id": user_id
-        }
+        user = {"id": user_id}
 
     document = {
         "_id": file_id,
@@ -78,13 +73,15 @@ async def create(db, filename: str, file_type: str, reserved: bool = False, user
         "expires_at": expires_at,
         "created": False,
         "reserved": reserved,
-        "ready": False
+        "ready": False,
     }
 
     await db.files.insert_one(document)
 
     # Return document will all keys, but size.
-    document = {key: document[key] for key in [key for key in PROJECTION if key != "size"]}
+    document = {
+        key: document[key] for key in [key for key in PROJECTION if key != "size"]
+    }
 
     return virtool.utils.base_processor(document)
 
@@ -120,8 +117,4 @@ async def reserve(db, file_ids: list):
     :param file_ids: a list of file_ids to reserve
 
     """
-    await db.files.update_many({"_id": {"$in": file_ids}}, {
-        "$set": {
-            "reserved": True
-        }
-    })
+    await db.files.update_many({"_id": {"$in": file_ids}}, {"$set": {"reserved": True}})

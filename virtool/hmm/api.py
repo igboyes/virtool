@@ -11,7 +11,14 @@ import virtool.hmm.db
 import virtool.http.routes
 import virtool.processes.db
 import virtool.utils
-from virtool.api.response import bad_gateway, bad_request, conflict, json_response, no_content, not_found
+from virtool.api.response import (
+    bad_gateway,
+    bad_request,
+    conflict,
+    json_response,
+    no_content,
+    not_found,
+)
 
 routes = virtool.http.routes.Routes()
 
@@ -37,7 +44,7 @@ async def find(req):
         req.query,
         sort="cluster",
         projection=virtool.hmm.db.PROJECTION,
-        base_query={"hidden": False}
+        base_query={"hidden": False},
     )
 
     data["status"] = await virtool.hmm.db.get_status(db)
@@ -47,6 +54,17 @@ async def find(req):
 
 @routes.get("/api/hmms/status")
 async def get_status(req):
+    """
+    Get a JSON object describing the status of the HMM data on the instance. Detailed release data is not currently
+    used.
+
+    `errors`: a list of errors in the HMM data
+    `installed`: the install HMM release
+    `release`: the latest HMM release
+    `updating`: an update is in progress
+    `process`: the process object associated with the current HMM status (eg. HMM install process)
+
+    """
     db = req.app["db"]
     status = await virtool.hmm.db.get_status(db)
     return json_response(status)
@@ -54,6 +72,11 @@ async def get_status(req):
 
 @routes.get("/api/hmms/status/release")
 async def get_release(req):
+    """
+    Get a JSON object describing the latest HMM release. Forces a refresh from GitHub. Calling the `/api/hmms/status`
+    endpoint does not force a refresh.
+
+    """
     try:
         release = await virtool.hmm.db.fetch_and_update_release(req.app)
     except virtool.errors.GitHubError as err:
@@ -74,12 +97,14 @@ async def get_release(req):
 @routes.get("/api/hmms/status/updates")
 async def list_updates(req):
     """
-    List all updates applied to the HMM collection.
+    List all release updates that have been applied to the HMMs.
 
     """
     db = req.app["db"]
 
-    updates = await virtool.db.utils.get_one_field(db.status, "updates", "hmm") or list()
+    updates = (
+        await virtool.db.utils.get_one_field(db.status, "updates", "hmm") or list()
+    )
     updates.reverse()
 
     return json_response(updates)
@@ -98,18 +123,11 @@ async def install(req):
     if await db.status.count_documents({"_id": "hmm", "updates.ready": False}):
         return conflict("Install already in progress")
 
-    process = await virtool.processes.db.register(
-        db,
-        "install_hmms"
-    )
+    process = await virtool.processes.db.create(db, "install_hmms")
 
-    document = await db.status.find_one_and_update({"_id": "hmm"}, {
-        "$set": {
-            "process": {
-                "id": process["id"]
-            }
-        }
-    })
+    document = await db.status.find_one_and_update(
+        {"_id": "hmm"}, {"$set": {"process": {"id": process["id"]}}}
+    )
 
     release = document.get("release")
 
@@ -118,18 +136,11 @@ async def install(req):
 
     update = virtool.github.create_update_subdocument(release, False, user_id)
 
-    await db.status.update_one({"_id": "hmm"}, {
-        "$push": {
-            "updates": update
-        }
-    })
+    await db.status.update_one({"_id": "hmm"}, {"$push": {"updates": update}})
 
-    await aiojobs.aiohttp.spawn(req, virtool.hmm.db.install(
-        req.app,
-        process["id"],
-        release,
-        user_id
-    ))
+    await aiojobs.aiohttp.spawn(
+        req, virtool.hmm.db.install(req.app, process["id"], release, user_id)
+    )
 
     return json_response(update)
 
@@ -165,13 +176,10 @@ async def purge(req):
     except FileNotFoundError:
         pass
 
-    await db.status.find_one_and_update({"_id": "hmm"}, {
-        "$set": {
-            "installed": None,
-            "process": None,
-            "updates": list()
-        }
-    })
+    await db.status.find_one_and_update(
+        {"_id": "hmm"},
+        {"$set": {"installed": None, "process": None, "updates": list()}},
+    )
 
     await virtool.hmm.db.fetch_and_update_release(req.app)
 

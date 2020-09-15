@@ -1,3 +1,6 @@
+import typing
+
+import aiohttp
 import logging
 from typing import Union
 
@@ -9,16 +12,9 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.github.com/repos"
 
-EXCLUDED_UPDATE_FIELDS = (
-    "content_type",
-    "download_url",
-    "etag",
-    "retrieved_at"
-)
+EXCLUDED_UPDATE_FIELDS = ("content_type", "download_url", "etag", "retrieved_at")
 
-HEADERS = {
-    "Accept": "application/vnd.github.v3+json"
-}
+HEADERS = {"Accept": "application/vnd.github.v3+json"}
 
 
 def create_update_subdocument(release, ready, user_id, created_at=None):
@@ -28,9 +24,7 @@ def create_update_subdocument(release, ready, user_id, created_at=None):
         **update,
         "created_at": created_at or virtool.utils.timestamp(),
         "ready": ready,
-        "user": {
-            "id": user_id
-        }
+        "user": {"id": user_id},
     }
 
 
@@ -54,7 +48,7 @@ def format_release(release: dict) -> dict:
         "html_url": release["html_url"],
         "download_url": asset["browser_download_url"],
         "published_at": release["published_at"],
-        "content_type": asset["content_type"]
+        "content_type": asset["content_type"],
     }
 
 
@@ -72,27 +66,23 @@ def get_etag(release: Union[None, dict]) -> Union[None, str]:
         return None
 
 
-async def get_release(settings, session, slug, etag=None, release_id="latest"):
+async def get_release(
+    settings: dict,
+    session: aiohttp.ClientSession,
+    slug: str,
+    etag: typing.Optional[str] = None,
+    release_id: Union[int, str] = "latest",
+) -> typing.Optional[dict]:
     """
     GET data from a GitHub API url.
 
     :param settings: the application settings object
-    :type settings: :class:`virtool.app_settings.Settings`
-
     :param session: the application HTTP client session
-    :type session: :class:`aiohttp.ClientSession`
-
     :param slug: the slug for the GitHub repo
-    :type slug: str
-
     :param etag: an ETag for the resource to be used with the `If-None-Match` header
-    :type etag: Union[None, str]
-
     :param release_id: the id of the GitHub release to get
-    :type release_id: Union[int,str]
-
+    :type release_id:
     :return: the latest release
-    :rtype: Coroutine[dict]
 
     """
     url = f"{BASE_URL}/{slug}/releases/{release_id}"
@@ -102,11 +92,15 @@ async def get_release(settings, session, slug, etag=None, release_id="latest"):
     if etag:
         headers["If-None-Match"] = etag
 
-    async with virtool.http.proxy.ProxyRequest(settings, session.get, url, headers=headers) as resp:
+    async with virtool.http.proxy.ProxyRequest(
+        settings, session.get, url, headers=headers
+    ) as resp:
         rate_limit_remaining = resp.headers.get("X-RateLimit-Remaining", "00")
         rate_limit = resp.headers.get("X-RateLimit-Limit", "00")
 
-        logger.debug(f"Fetched release: {slug}/{release_id} ({resp.status} - {rate_limit_remaining}/{rate_limit})")
+        logger.debug(
+            f"Fetched release: {slug}/{release_id} ({resp.status} - {rate_limit_remaining}/{rate_limit})"
+        )
 
         if resp.status == 200:
             data = await resp.json()

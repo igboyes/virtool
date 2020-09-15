@@ -1,3 +1,11 @@
+"""
+Supports keeping the Virtool files data directory clean and watching the watch directory for new sequence files to
+import.
+
+IMPORTANT: This module will be removed in v5 in favour of an external file watching service that supports multiple
+sequencers and host operating systems.
+
+"""
 import asyncio
 import logging
 import os
@@ -19,17 +27,14 @@ WATCH_FLAGS = None
 
 if aionotify:
     FILES_FLAGS = (
-        aionotify.Flags.CLOSE_WRITE |
-        aionotify.Flags.CREATE |
-        aionotify.Flags.DELETE |
-        aionotify.Flags.MOVED_TO |
-        aionotify.Flags.MOVED_FROM
+        aionotify.Flags.CLOSE_WRITE
+        | aionotify.Flags.CREATE
+        | aionotify.Flags.DELETE
+        | aionotify.Flags.MOVED_TO
+        | aionotify.Flags.MOVED_FROM
     )
 
-    WATCH_FLAGS = (
-            aionotify.Flags.CLOSE_WRITE |
-            aionotify.Flags.MOVED_TO
-    )
+    WATCH_FLAGS = aionotify.Flags.CLOSE_WRITE | aionotify.Flags.MOVED_TO
 
 PATH_RE = re.compile("Error setting up watch on (.*) with flags ([0-9]+):")
 
@@ -39,7 +44,7 @@ TYPE_NAME_DICT = {
     "CREATE": "create",
     "DELETE": "delete",
     "MOVED_FROM": "delete",
-    "MOVED_TO": "close"
+    "MOVED_TO": "close",
 }
 
 logger = logging.getLogger(__name__)
@@ -74,7 +79,6 @@ def handle_watch_error(err: Exception):
 
 
 class Manager:
-
     def __init__(self, executor, db, files_path, watch_path, clean_interval=20):
         self.loop = asyncio.get_event_loop()
         self.executor = executor
@@ -97,9 +101,7 @@ class Manager:
             logger.warning("File manager disabled because of host OS incompatibility")
             return
 
-        coros = [
-            self.watch()
-        ]
+        coros = [self.watch()]
 
         if self.clean_interval is not None:
             coros.append(self.clean())
@@ -117,16 +119,24 @@ class Manager:
                         await self.loop.run_in_executor(
                             self.executor,
                             os.remove,
-                            os.path.join(self.files_path, filename)
+                            os.path.join(self.files_path, filename),
                         )
 
-                db_created_list = await self.db.files.find({"created": True}).distinct("_id")
+                db_created_list = await self.db.files.find({"created": True}).distinct(
+                    "_id"
+                )
 
-                await self.db.files.delete_many({
-                    "_id": {
-                        "$in": [filename for filename in db_created_list if filename not in dir_list]
+                await self.db.files.delete_many(
+                    {
+                        "_id": {
+                            "$in": [
+                                filename
+                                for filename in db_created_list
+                                if filename not in dir_list
+                            ]
+                        }
                     }
-                })
+                )
 
                 count = 0
                 threshold = self.clean_interval / 0.3
@@ -189,16 +199,12 @@ class Manager:
                 self.executor,
                 shutil.copy,
                 path,
-                os.path.join(self.files_path, document["id"])
+                os.path.join(self.files_path, document["id"]),
             )
 
             logging.debug("Retrieved file from watch path: " + filename)
 
-        await self.loop.run_in_executor(
-            self.executor,
-            os.remove,
-            path
-        )
+        await self.loop.run_in_executor(self.executor, os.remove, path)
 
         if not is_read_file:
             logging.debug("Removed invalid read file from watch path: " + filename)
@@ -216,19 +222,12 @@ class Manager:
 
         size = virtool.utils.file_stats(path)["size"]
 
-        update_result = await self.db.files.update_one({"_id": filename}, {
-            "$set": {
-                "size": size,
-                "ready": True
-            }
-        })
+        update_result = await self.db.files.update_one(
+            {"_id": filename}, {"$set": {"size": size, "ready": True}}
+        )
 
         if not update_result.matched_count:
-            await self.loop.run_in_executor(
-                self.executor,
-                os.remove,
-                path
-            )
+            await self.loop.run_in_executor(self.executor, os.remove, path)
 
             logging.debug("Removed untracked file from files path: " + filename)
 
@@ -243,11 +242,7 @@ class Manager:
         :type filename: str
 
         """
-        await self.db.files.update_one({"_id": filename}, {
-            "$set": {
-                "created": True
-            }
-        })
+        await self.db.files.update_one({"_id": filename}, {"$set": {"created": True}})
 
         logging.debug("File was created in files path: " + filename)
 

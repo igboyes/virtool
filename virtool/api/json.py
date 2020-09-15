@@ -1,8 +1,16 @@
+"""
+Functions and objects for dealing with JSON data.
+
+"""
 import datetime
 import json
 
 
 class CustomEncoder(json.JSONEncoder):
+    """
+    A custom JSON encoder that converts Python datetime objects to ISO formatted date and time.
+
+    """
 
     def default(self, obj):
         if isinstance(obj, datetime.datetime):
@@ -11,7 +19,14 @@ class CustomEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def isoformat(obj):
+def isoformat(obj) -> str:
+    """
+    Convert the passed datetime object to a ISO formatted date and time.
+
+    :param obj: the object to format
+    :return: ISO formatted date and time string
+
+    """
     return obj.replace(tzinfo=datetime.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
@@ -34,9 +49,4 @@ def pretty_dumps(obj: object) -> str:
     :param obj: a JSON-serializable object
     :return: a JSON string
     """
-    return json.dumps(
-        obj,
-        cls=CustomEncoder,
-        indent=4,
-        sort_keys=True
-    )
+    return json.dumps(obj, cls=CustomEncoder, indent=4, sort_keys=True)

@@ -10,15 +10,7 @@ import pymongo.errors
 import virtool.caches
 import virtool.utils
 
-PROJECTION = [
-    "_id",
-    "created_at",
-    "files",
-    "hash",
-    "program",
-    "ready",
-    "sample"
-]
+PROJECTION = ["_id", "created_at", "files", "hash", "program", "ready", "sample"]
 
 
 def calculate_cache_hash(parameters: dict) -> str:
@@ -47,12 +39,14 @@ async def find(db, sample_id: str, program: str, parameters: dict) -> Union[dict
     :return: a cache document
 
     """
-    document = await db.caches.find_one({
-        "hash": virtool.caches.db.calculate_cache_hash(parameters),
-        "missing": False,
-        "program": program,
-        "sample.id": sample_id
-    })
+    document = await db.caches.find_one(
+        {
+            "hash": virtool.caches.db.calculate_cache_hash(parameters),
+            "missing": False,
+            "program": program,
+            "sample.id": sample_id,
+        }
+    )
 
     return virtool.utils.base_processor(document)
 
@@ -70,7 +64,14 @@ async def get(db, cache_id: str) -> dict:
     return virtool.utils.base_processor(document)
 
 
-async def create(db, sample_id: str, parameters: dict, paired: bool, legacy: bool = False, program: str = "skewer-0.2.2"):
+async def create(
+    db,
+    sample_id: str,
+    parameters: dict,
+    paired: bool,
+    legacy: bool = False,
+    program: str = "skewer-0.2.2",
+):
     """
     Create and insert a new cache database document. Return the generated unique cache id.
 
@@ -97,9 +98,7 @@ async def create(db, sample_id: str, parameters: dict, paired: bool, legacy: boo
             "parameters": parameters,
             "program": program,
             "ready": False,
-            "sample": {
-                "id": sample_id
-            }
+            "sample": {"id": sample_id},
         }
 
         await db.caches.insert_one(document)
@@ -108,7 +107,9 @@ async def create(db, sample_id: str, parameters: dict, paired: bool, legacy: boo
 
     except pymongo.errors.DuplicateKeyError:
         # Keep trying to add the cache with new ids if the generated id is not unique.
-        return await create(db, sample_id, parameters, paired, legacy=legacy, program=program)
+        return await create(
+            db, sample_id, parameters, paired, legacy=legacy, program=program
+        )
 
 
 async def remove(app: aiohttp.web.Application, cache_id: str):
@@ -122,9 +123,7 @@ async def remove(app: aiohttp.web.Application, cache_id: str):
     db = app["db"]
     settings = app["settings"]
 
-    await db.caches.delete_one({
-        "_id": cache_id
-    })
+    await db.caches.delete_one({"_id": cache_id})
 
     path = os.path.join(settings["data_path"], "caches", cache_id)
 

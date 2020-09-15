@@ -22,9 +22,7 @@ async def find(req):
     """
     db = req.app["db"]
 
-    base_query = {
-        "reserved": False
-    }
+    base_query = {"reserved": False}
 
     file_type = req.query.get("type")
 
@@ -39,7 +37,7 @@ async def find(req):
         req.query,
         sort=[("uploaded_at", pymongo.DESCENDING)],
         projection=virtool.files.db.PROJECTION,
-        base_query=base_query
+        base_query=base_query,
     )
 
     return json_response(data)
@@ -47,19 +45,17 @@ async def find(req):
 
 @routes.delete("/api/files/{file_id}", permission="remove_file")
 async def remove(req):
+    """
+    Remove a file given it's ID. The database document and file on disk are removed.
+
+    """
     file_id = req.match_info["file_id"]
 
     deleted_count = await virtool.files.db.remove(
-        req.app["db"],
-        req.app["settings"],
-        req.app["run_in_thread"],
-        file_id
+        req.app["db"], req.app["settings"], req.app["run_in_thread"], file_id
     )
 
     if deleted_count == 0:
         return not_found()
 
-    return json_response({
-        "file_id": file_id,
-        "removed": True
-    })
+    return json_response({"file_id": file_id, "removed": True})

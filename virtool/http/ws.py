@@ -1,18 +1,22 @@
+"""
+Defines a handler for websocket requests.
+
+"""
 import logging
 
-from aiohttp import web
+import aiohttp.web
 
 import virtool.dispatcher
 
 logger = logging.getLogger(__name__)
 
 
-async def root(req):
+async def root(req: aiohttp.web.Request):
     """
     Handles requests for WebSocket connections.
 
     """
-    ws = web.WebSocketResponse(autoping=True, heartbeat=5)
+    ws = aiohttp.web.WebSocketResponse(autoping=True, heartbeat=5)
 
     await ws.prepare(req)
 

@@ -3,11 +3,7 @@ from typing import Union
 
 import visvalingamwyatt as vw
 
-WORKFLOW_NAMES = (
-    "aodp",
-    "nuvs",
-    "pathoscope_bowtie"
-)
+WORKFLOW_NAMES = ("aodp", "nuvs", "pathoscope_bowtie")
 
 
 def transform_coverage_to_coordinates(coverage_list: list) -> list:
@@ -41,7 +37,9 @@ def transform_coverage_to_coordinates(coverage_list: list) -> list:
     return coordinates
 
 
-def find_nuvs_sequence_by_index(document: dict, sequence_index: int) -> Union[None, dict]:
+def find_nuvs_sequence_by_index(
+    document: dict, sequence_index: int
+) -> Union[None, dict]:
     """
     Get a sequence from a NuVs analysis document by its sequence index.
 
@@ -50,7 +48,11 @@ def find_nuvs_sequence_by_index(document: dict, sequence_index: int) -> Union[No
     :return: a NuVs sequence
 
     """
-    sequences = [result["sequence"] for result in document["results"] if result["index"] == int(sequence_index)]
+    sequences = [
+        result["sequence"]
+        for result in document["results"]
+        if result["index"] == int(sequence_index)
+    ]
 
     # Empty sequences list means sequence was not found.
     if not sequences:
@@ -73,17 +75,10 @@ def join_analysis_path(data_path, analysis_id, sample_id):
     :return: an analysis JSON path
 
     """
-    return os.path.join(
-        data_path,
-        "samples",
-        sample_id,
-        "analysis",
-        analysis_id
-    )
+    return os.path.join(data_path, "samples", sample_id, "analysis", analysis_id)
 
 
 def join_analysis_json_path(data_path, analysis_id, sample_id):
     return os.path.join(
-        join_analysis_path(data_path, analysis_id, sample_id),
-        "results.json"
+        join_analysis_path(data_path, analysis_id, sample_id), "results.json"
     )

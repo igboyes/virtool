@@ -40,20 +40,20 @@ INTERFACES = (
     "software",
     "status",
     "subtraction",
-    "users"
+    "users",
 )
 
 #: Allowed operations. Calls to :meth:`.Dispatcher.dispatch` will be validated against these operations.
-OPERATIONS = (
-    "insert",
-    "update",
-    "delete"
-)
+OPERATIONS = ("insert", "update", "delete")
 
 logger = logging.getLogger(__name__)
 
 
 class Connection:
+    """
+    
+
+    """
 
     def __init__(self, ws, session):
         self._ws = ws
@@ -83,7 +83,6 @@ async def default_writer(connection: Connection, message: dict):
 
 
 class Dispatcher:
-
     def __init__(self, db, q):
         #: A dict of all active connections.
         self.db = db
@@ -103,7 +102,6 @@ class Dispatcher:
             for conn in self.connections:
                 await conn.close()
 
-
     def add_connection(self, connection: Connection):
         """
         Add a connection to the dispatcher.
@@ -112,7 +110,7 @@ class Dispatcher:
 
         """
         self.connections.append(connection)
-        logging.debug(f'Added connection to dispatcher: {connection.user_id}')
+        logging.debug(f"Added connection to dispatcher: {connection.user_id}")
 
     def update_connections(self, user: dict):
         """
@@ -138,11 +136,13 @@ class Dispatcher:
         """
         try:
             self.connections.remove(connection)
-            logging.debug(f'Removed connection from dispatcher: {connection.user_id}')
+            logging.debug(f"Removed connection from dispatcher: {connection.user_id}")
         except ValueError:
             pass
 
-    async def dispatch(self, interface: str, operation: str, id_list: Union[tuple, list]):
+    async def dispatch(
+        self, interface: str, operation: str, id_list: Union[tuple, list]
+    ):
         """
         Dispatch a ``message`` with a conserved format to a selection of active ``connections``.
 
@@ -151,10 +151,10 @@ class Dispatcher:
         :param id_list: the data the client will use
         """
         if interface not in INTERFACES:
-            raise ValueError(f'Unknown dispatch interface: {interface}')
+            raise ValueError(f"Unknown dispatch interface: {interface}")
 
         if operation not in OPERATIONS:
-            raise ValueError(f'Unknown dispatch operation: {operation}')
+            raise ValueError(f"Unknown dispatch operation: {operation}")
 
         # If the connections parameter was not set, dispatch the message to all authorized connections. Authorized
         # connections have assigned ``user_id`` properties.
@@ -162,18 +162,16 @@ class Dispatcher:
 
         connections_to_remove = list()
 
-        messages = await self.prepare_messages(
-            interface,
-            operation,
-            id_list
-        )
+        messages = await self.prepare_messages(interface, operation, id_list)
 
         for connection in connections:
             try:
                 for message in messages:
                     await connection.send(message)
             except RuntimeError as err:
-                if "RuntimeError: unable to perform operation on <TCPTransport" in str(err):
+                if "RuntimeError: unable to perform operation on <TCPTransport" in str(
+                    err
+                ):
                     connections_to_remove.append(connection)
 
         for connection in connections_to_remove:
@@ -191,11 +189,7 @@ class Dispatcher:
 
     async def prepare_messages(self, interface, operation, id_list):
         if operation == "delete":
-            return [{
-                "interface": interface,
-                "operation": operation,
-                "data": id_list
-            }]
+            return [{"interface": interface, "operation": operation, "data": id_list}]
 
         collection = getattr(self.db, interface)
 
@@ -204,11 +198,15 @@ class Dispatcher:
 
         messages = list()
 
-        async for document in collection.find({"_id": {"$in": id_list}}, projection=projection):
-            messages.append({
-                "interface": interface,
-                "operation": operation,
-                "data": await apply_processor(document)
-            })
+        async for document in collection.find(
+            {"_id": {"$in": id_list}}, projection=projection
+        ):
+            messages.append(
+                {
+                    "interface": interface,
+                    "operation": operation,
+                    "data": await apply_processor(document),
+                }
+            )
 
         return messages

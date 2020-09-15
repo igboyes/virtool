@@ -37,7 +37,9 @@ async def list_releases(req):
 
 @routes.get("/api/software/updates")
 async def list_updates(req):
-    updates = virtool.db.utils.get_one_field(req.app["db"].status, "updates", "software")
+    updates = virtool.db.utils.get_one_field(
+        req.app["db"].status, "updates", "software"
+    )
     return json_response(updates)
 
 
@@ -52,32 +54,20 @@ async def install(req):
     except IndexError:
         return not_found("Could not find latest uninstalled release")
 
-    process = await virtool.processes.db.register(
-        db,
-        "update_software",
-        context={
-            "file_size": latest_release["size"]
-        }
+    process = await virtool.processes.db.create(
+        db, "update_software", context={"file_size": latest_release["size"]}
     )
 
-    await db.status.update_one({"_id": "software"}, {
-        "$set": {
-            "process": process,
-            "updating": True
-        }
-    })
+    await db.status.update_one(
+        {"_id": "software"}, {"$set": {"process": process, "updating": True}}
+    )
 
     update = virtool.github.create_update_subdocument(
-        latest_release,
-        False,
-        req["client"].user_id,
-        virtool.utils.timestamp()
+        latest_release, False, req["client"].user_id, virtool.utils.timestamp()
     )
 
-    await aiojobs.aiohttp.spawn(req, virtool.software.db.install(
-        req.app,
-        latest_release,
-        process["id"]
-    ))
+    await aiojobs.aiohttp.spawn(
+        req, virtool.software.db.install(req.app, latest_release, process["id"])
+    )
 
     return json_response(update)

@@ -1,4 +1,3 @@
-
 import json
 import os
 import pathlib
@@ -49,31 +48,17 @@ async def add_subtractions_to_analyses(db):
         return
 
     pipeline = [
-        {
-            "$match": {
-                "subtraction": {
-                    "$exists": True
-                }
-            }
-        },
-        {
-            "$group": {
-                "_id": "$subtraction.id",
-                "id_list": {
-                    "$addToSet": "$_id"
-                }
-            }
-        }
+        {"$match": {"subtraction": {"$exists": True}}},
+        {"$group": {"_id": "$subtraction.id", "id_list": {"$addToSet": "$_id"}}},
     ]
 
     async for item in db.samples.aggregate(pipeline):
         sample_ids = item["id_list"]
 
-        await db.analyses.update_many({"sample.id": {"$in": sample_ids}}, {
-            "$set": {
-                "subtraction.id": item["_id"]
-            }
-        })
+        await db.analyses.update_many(
+            {"sample.id": {"$in": sample_ids}},
+            {"$set": {"subtraction.id": item["_id"]}},
+        )
 
     return True
 
@@ -81,14 +66,15 @@ async def add_subtractions_to_analyses(db):
 async def add_updated_at(db):
     updates = list()
 
-    async for document in db.analyses.find({"updated_at": {"$exists": False}}, ["created_at"]):
-        updates.append(pymongo.UpdateOne({
-            "_id": document["_id"]
-        }, {
-            "$set": {
-                "updated_at": document["created_at"]
-            }
-        }))
+    async for document in db.analyses.find(
+        {"updated_at": {"$exists": False}}, ["created_at"]
+    ):
+        updates.append(
+            pymongo.UpdateOne(
+                {"_id": document["_id"]},
+                {"$set": {"updated_at": document["created_at"]}},
+            )
+        )
 
     if updates:
         await db.analyses.bulk_write(updates)
@@ -97,7 +83,7 @@ async def add_updated_at(db):
 async def convert_pathoscope_file(db, analysis_id, sample_id, data_path):
     path = os.path.join(
         virtool.analyses.utils.join_analysis_path(data_path, analysis_id, sample_id),
-        "pathoscope.json"
+        "pathoscope.json",
     )
 
     async with aiofiles.open(path, "r") as f:
@@ -106,12 +92,10 @@ async def convert_pathoscope_file(db, analysis_id, sample_id, data_path):
     async with aiofiles.open(path, "w") as f:
         await f.write(json.dumps(data["diagnosis"]))
 
-    await db.analyses.update_one({"_id": analysis_id}, {
-        "$set": {
-            "ready": data["ready"],
-            "read_count": data["read_count"]
-        }
-    })
+    await db.analyses.update_one(
+        {"_id": analysis_id},
+        {"$set": {"ready": data["ready"], "read_count": data["read_count"]}},
+    )
 
 
 async def convert_pathoscope_files(db, settings):
@@ -127,28 +111,19 @@ async def convert_pathoscope_files(db, settings):
     query = {
         "workflow": "pathoscope_bowtie",
         "results": "file",
-        "read_count": {
-            "$exists": False
-        }
+        "read_count": {"$exists": False},
     }
 
     async for document in db.analyses.find(query, ["_id", "sample"]):
         await convert_pathoscope_file(
-            db,
-            document["_id"],
-            document["sample"]["id"],
-            settings["data_path"]
+            db, document["_id"], document["sample"]["id"], settings["data_path"]
         )
 
 
 async def rename_algorithm_field(db):
     query = virtool.api.utils.compose_exists_query("algorithm")
 
-    await db.analyses.update_many(query, {
-        "$rename": {
-            "algorithm": "workflow"
-        }
-    })
+    await db.analyses.update_many(query, {"$rename": {"algorithm": "workflow"}})
 
 
 async def rename_analysis_json_files(settings: dict):
@@ -166,15 +141,10 @@ async def rename_analysis_json_files(settings: dict):
         filename = filepath.name
 
         if filename == "nuvs.json" or filename == "pathoscope.json":
-            os.rename(
-                str(filepath),
-                os.path.join(filepath.parent, "results.json")
-            )
+            os.rename(str(filepath), os.path.join(filepath.parent, "results.json"))
 
 
 async def rename_results_field(db):
-    await db.analyses.update_many({"workflow": "pathoscope_bowtie"}, {
-        "$rename": {
-            "diagnosis": "results"
-        }
-    })
+    await db.analyses.update_many(
+        {"workflow": "pathoscope_bowtie"}, {"$rename": {"diagnosis": "results"}}
+    )

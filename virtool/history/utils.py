@@ -41,10 +41,10 @@ def compose_create_description(document: dict) -> str:
 
 
 def compose_edit_description(
-        name: Union[str, None],
-        abbreviation: Union[str, None],
-        old_abbreviation: Union[str, None],
-        schema: Union[dict, None]
+    name: Union[str, None],
+    abbreviation: Union[str, None],
+    old_abbreviation: Union[str, None],
+    schema: Union[dict, None],
 ):
     """
     Compose a change description for an edit on an existing OTU.
@@ -107,7 +107,9 @@ def compose_remove_description(document: dict) -> str:
     return description
 
 
-def derive_otu_information(old: Union[dict, None], new: Union[dict, None]) -> Tuple[str, str, Union[int, str], str]:
+def derive_otu_information(
+    old: Union[dict, None], new: Union[dict, None]
+) -> Tuple[str, str, Union[int, str], str]:
     """
     Derive OTU information for a new change document from the old and new joined OTU documents.
 
@@ -205,11 +207,7 @@ async def remove_diff_files(app, id_list: List[str]):
     for change_id in id_list:
         otu_id, otu_version = change_id.split(".")
 
-        path = join_diff_path(
-            data_path,
-            otu_id,
-            otu_version
-        )
+        path = join_diff_path(data_path, otu_id, otu_version)
 
         try:
             await app["run_in_thread"](os.remove, path)
@@ -217,7 +215,19 @@ async def remove_diff_files(app, id_list: List[str]):
             pass
 
 
-async def write_diff_file(data_path, otu_id, otu_version, body):
+async def write_diff_file(data_path: str, otu_id: str, otu_version: str, body: dict):
+    """
+    Write a diff for the given OTU and version to a JSON file. This is necessary when the diff exceeds the MongoDB
+    document size limit.
+
+    The file is written to `/data_path/history/{otu_id}_{otu_version}.json`.
+
+    :param data_path: the application data path
+    :param otu_id: the ID of the OTU the diff is for
+    :param otu_version: the version of the OTU the diff is for
+    :param body: the diff body
+
+    """
     path = join_diff_path(data_path, otu_id, otu_version)
 
     async with aiofiles.open(path, "w") as f:

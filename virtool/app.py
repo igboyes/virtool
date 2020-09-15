@@ -42,7 +42,6 @@ async def on_shutdown(app: aiohttp.web.Application):
     A function called when the app is shutting down.
 
     :param app: the app object
-    :type app: :class:`aiohttp.web.Application`
 
     """
     logger.debug("Shutting down")
@@ -77,7 +76,7 @@ async def on_shutdown(app: aiohttp.web.Application):
         pass
 
 
-def create_app(config):
+def create_app(config: dict) -> aiohttp.web.Application:
     """
     Creates the Virtool application.
 
@@ -88,7 +87,7 @@ def create_app(config):
         virtool.http.csp.middleware,
         virtool.http.errors.middleware,
         virtool.http.proxy.middleware,
-        virtool.http.query.middleware
+        virtool.http.query.middleware,
     ]
 
     app = aiohttp.web.Application(middlewares=middlewares)
@@ -99,25 +98,27 @@ def create_app(config):
 
     aiojobs.aiohttp.setup(app)
 
-    app.on_startup.extend([
-        virtool.startup.init_version,
-        virtool.startup.init_events,
-        virtool.startup.init_db,
-        virtool.startup.init_dispatcher,
-        virtool.startup.init_settings,
-        virtool.startup.init_client_path,
-        virtool.startup.init_http_client,
-        virtool.startup.init_paths,
-        virtool.startup.init_routes,
-        virtool.startup.init_executors,
-        virtool.startup.init_redis,
-        virtool.startup.init_listen_for_changes,
-        virtool.startup.init_sentry,
-        virtool.startup.init_check_db,
-        virtool.startup.init_resources,
-        virtool.startup.init_job_interface,
-        virtool.startup.init_refresh
-    ])
+    app.on_startup.extend(
+        [
+            virtool.startup.init_version,
+            virtool.startup.init_events,
+            virtool.startup.init_db,
+            virtool.startup.init_dispatcher,
+            virtool.startup.init_settings,
+            virtool.startup.init_client_path,
+            virtool.startup.init_http_client,
+            virtool.startup.init_paths,
+            virtool.startup.init_routes,
+            virtool.startup.init_executors,
+            virtool.startup.init_redis,
+            virtool.startup.init_listen_for_changes,
+            virtool.startup.init_sentry,
+            virtool.startup.init_check_db,
+            virtool.startup.init_resources,
+            virtool.startup.init_job_interface,
+            virtool.startup.init_refresh,
+        ]
+    )
 
     app.on_response_prepare.append(virtool.http.csp.on_prepare)
     app.on_shutdown.append(on_shutdown)
@@ -125,7 +126,9 @@ def create_app(config):
     return app
 
 
-async def create_app_runner(app: aiohttp.web.Application, host: str, port: int) -> aiohttp.web.AppRunner:
+async def create_app_runner(
+    app: aiohttp.web.Application, host: str, port: int
+) -> aiohttp.web.AppRunner:
     """
     Create an :class:`aiohttp.web.AppRunner` to allow customization of signal handlers.
 
@@ -157,15 +160,14 @@ async def create_app_runner(app: aiohttp.web.Application, host: str, port: int) 
 async def run_app(config):
     app = create_app(config)
 
-    runner = await create_app_runner(
-        app,
-        config["host"],
-        config["port"]
-    )
+    runner = await create_app_runner(app, config["host"], config["port"])
 
     _, pending = await asyncio.wait(
-        [wait_for_restart(runner, app["events"]), wait_for_shutdown(runner, app["events"])],
-        return_when=asyncio.FIRST_COMPLETED
+        [
+            wait_for_restart(runner, app["events"]),
+            wait_for_shutdown(runner, app["events"]),
+        ],
+        return_when=asyncio.FIRST_COMPLETED,
     )
 
     for task in pending:

@@ -1,7 +1,9 @@
 import io
 import logging
+import typing
 
 import Bio.SeqIO
+import aiohttp
 
 import virtool.http.proxy
 
@@ -13,21 +15,16 @@ TOOL = "virtool"
 FETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 
 
-async def fetch(settings, session, accession):
+async def fetch(
+    settings: dict, session: aiohttp.ClientSession, accession: typing.Union[int, str]
+) -> typing.Union[dict, None]:
     """
     Fetch the Genbank record for the passed `accession`.
 
-    :param settings: the application settings object
-    :type settings: :class:`virtool.app_settings.Settings`
-
+    :param settings: the application settings
     :param session: an aiohttp client session
-    :type session: :class:`aiohttp.ClientSession`
-
     :param accession: the accession to fetch
-    :type accession: Union[int,str]
-
     :return: parsed Genbank data
-    :rtype: dict
 
     """
     params = {
@@ -36,10 +33,12 @@ async def fetch(settings, session, accession):
         "id": accession,
         "retmode": "text",
         "rettype": "gb",
-        "tool": TOOL
+        "tool": TOOL,
     }
 
-    async with virtool.http.proxy.ProxyRequest(settings, session.get, FETCH_URL, params=params) as resp:
+    async with virtool.http.proxy.ProxyRequest(
+        settings, session.get, FETCH_URL, params=params
+    ) as resp:
 
         body = await resp.text()
 
@@ -55,7 +54,7 @@ async def fetch(settings, session, accession):
             "accession": gb.id,
             "definition": gb.description,
             "sequence": str(gb.seq),
-            "host": ""
+            "host": "",
         }
 
         for feature in gb.features:

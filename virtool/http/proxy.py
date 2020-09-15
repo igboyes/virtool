@@ -1,11 +1,18 @@
 import aiohttp
-from aiohttp import web
+import aiohttp.web
 
 import virtool.errors
 from virtool.api.response import json_response
 
 
 class ProxyRequest:
+    """
+    An asynchronous context manager for simplifying outgoing HTTP requests from Virtool (Genbank, GitHub, etc).
+
+    Handles proxy errors and proxy settings without the developer having to write this out for each `aiohttp` client
+    request individually.
+
+    """
 
     def __init__(self, settings, method, url, **kwargs):
         self.proxy = settings["proxy"] or None
@@ -33,19 +40,20 @@ class ProxyRequest:
         self.resp.close()
 
 
-@web.middleware
+@aiohttp.web.middleware
 async def middleware(req, handler):
+    """
+    Returns JSON errors describing proxy problems if a proxy exception is encountered during request handling.
+    Exceptions are raise by :class:`ProxyRequest`.
+
+    """
     try:
         return await handler(req)
 
     except virtool.errors.ProxyError as err:
-        return json_response({
-            "id": "proxy_error",
-            "message": str(err)
-        }, status=500)
+        return json_response({"id": "proxy_error", "message": str(err)}, status=500)
 
     except aiohttp.ClientProxyConnectionError:
-        return json_response({
-            "id": "proxy_error",
-            "message": "Could not connect to proxy"
-        }, status=500)
+        return json_response(
+            {"id": "proxy_error", "message": "Could not connect to proxy"}, status=500
+        )

@@ -2,6 +2,8 @@ import asyncio
 import os
 from typing import Tuple, Union
 
+import aiohttp.web_app
+
 import virtool.analyses.utils
 import virtool.bio
 import virtool.db.utils
@@ -23,13 +25,14 @@ PROJECTION = [
     "sample",
     "subtraction",
     "updated_at",
-    "user"
+    "user",
 ]
 
 
 class BLAST:
-
-    def __init__(self, db, settings: dict, analysis_id: str, sequence_index: int, rid: str):
+    def __init__(
+        self, db, settings: dict, analysis_id: str, sequence_index: int, rid: str
+    ):
         self.db = db
         self.settings = settings
         self.analysis_id = analysis_id
@@ -55,7 +58,9 @@ class BLAST:
         await asyncio.sleep(self.interval)
         self.interval += 5
 
-    async def update(self, ready: bool, result: Union[None, dict], error: Union[None, str]) -> Tuple[dict, dict]:
+    async def update(
+        self, ready: bool, result: Union[None, dict], error: Union[None, str]
+    ) -> Tuple[dict, dict]:
         """
         Update the BLAST data. Returns the BLAST data and the complete analysis document.
 
@@ -78,18 +83,18 @@ class BLAST:
             "last_checked_at": virtool.utils.timestamp(),
             "rid": self.rid,
             "ready": ready,
-            "result": self.result
+            "result": self.result,
         }
 
-        document = await self.db.analyses.find_one_and_update({
-            "_id": self.analysis_id,
-            "results.index": self.sequence_index
-        }, {
-            "$set": {
-                "results.$.blast": data,
-                "updated_at": virtool.utils.timestamp()
-            }
-        })
+        document = await self.db.analyses.find_one_and_update(
+            {"_id": self.analysis_id, "results.index": self.sequence_index},
+            {
+                "$set": {
+                    "results.$.blast": data,
+                    "updated_at": virtool.utils.timestamp(),
+                }
+            },
+        )
 
         return data, document
 
@@ -104,7 +109,9 @@ async def new(app, sample_id, ref_id, subtraction_id, user_id, workflow):
     settings = app["settings"]
 
     # Get the current id and version of the otu index currently being used for analysis.
-    index_id, index_version = await virtool.indexes.db.get_current_id_and_version(db, ref_id)
+    index_id, index_version = await virtool.indexes.db.get_current_id_and_version(
+        db, ref_id
+    )
 
     sample = await db.samples.find_one(sample_id, ["name"])
 
@@ -119,27 +126,16 @@ async def new(app, sample_id, ref_id, subtraction_id, user_id, workflow):
         "ready": False,
         "created_at": created_at,
         "updated_at": created_at,
-        "job": {
-            "id": job_id
-        },
+        "job": {"id": job_id},
         "workflow": workflow,
-        "sample": {
-            "id": sample_id
-        },
-        "index": {
-            "id": index_id,
-            "version": index_version
-        },
+        "sample": {"id": sample_id},
+        "index": {"id": index_id, "version": index_version},
         "reference": {
             "id": ref_id,
-            "name": await virtool.db.utils.get_one_field(db.references, "name", ref_id)
+            "name": await virtool.db.utils.get_one_field(db.references, "name", ref_id),
         },
-        "subtraction": {
-            "id": subtraction_id
-        },
-        "user": {
-            "id": user_id,
-        }
+        "subtraction": {"id": subtraction_id},
+        "user": {"id": user_id,},
     }
 
     task_args = {
@@ -147,18 +143,13 @@ async def new(app, sample_id, ref_id, subtraction_id, user_id, workflow):
         "ref_id": ref_id,
         "sample_id": sample_id,
         "sample_name": sample["name"],
-        "index_id": index_id
+        "index_id": index_id,
     }
 
     await db.analyses.insert_one(document)
 
     # Create job document.
-    job = await virtool.jobs.db.create(
-        db,
-        document["workflow"],
-        task_args,
-        user_id
-    )
+    job = await virtool.jobs.db.create(db, document["workflow"], task_args, user_id)
 
     await app["jobs"].enqueue(job["_id"])
 
@@ -168,15 +159,15 @@ async def new(app, sample_id, ref_id, subtraction_id, user_id, workflow):
 
 
 async def update_nuvs_blast(
-        db,
-        settings: dict,
-        analysis_id: str,
-        sequence_index: int,
-        rid: str,
-        error: Union[None, str] = None,
-        interval: int = 3,
-        ready: Union[None, bool] = None,
-        result: Union[None, dict] = None
+    db,
+    settings: dict,
+    analysis_id: str,
+    sequence_index: int,
+    rid: str,
+    error: Union[None, str] = None,
+    interval: int = 3,
+    ready: Union[None, bool] = None,
+    result: Union[None, dict] = None,
 ) -> Tuple[dict, dict]:
     """
     Update the BLAST data for a sequence in a NuVs analysis.
@@ -201,33 +192,30 @@ async def update_nuvs_blast(
         "last_checked_at": virtool.utils.timestamp(),
         "rid": rid,
         "ready": ready,
-        "result": result
+        "result": result,
     }
 
-    document = await db.analyses.find_one_and_update({"_id": analysis_id, "results.index": sequence_index}, {
-        "$set": {
-            "results.$.blast": data,
-            "updated_at": virtool.utils.timestamp()
-        }
-    })
+    document = await db.analyses.find_one_and_update(
+        {"_id": analysis_id, "results.index": sequence_index},
+        {"$set": {"results.$.blast": data, "updated_at": virtool.utils.timestamp()}},
+    )
 
     return data, document
 
 
 async def remove_nuvs_blast(db, analysis_id, sequence_index):
-    await db.analyses.update_one({"_id": analysis_id, "results.index": sequence_index}, {
-        "$set": {
-            "results.$.blast": None,
-            "updated_at": virtool.utils.timestamp()
-        }
-    })
+    await db.analyses.update_one(
+        {"_id": analysis_id, "results.index": sequence_index},
+        {"$set": {"results.$.blast": None, "updated_at": virtool.utils.timestamp()}},
+    )
 
 
 async def remove_orphaned_directories(app):
     """
     Remove all analysis directories for which an analysis document does not exist in the database.
 
-    :param app:
+    :param app: the application object
+
     """
     db = app["db"]
 

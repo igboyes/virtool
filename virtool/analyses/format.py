@@ -28,7 +28,7 @@ CSV_HEADERS = (
     "Length",
     "Weight",
     "Median Depth",
-    "Coverage"
+    "Coverage",
 )
 
 
@@ -49,6 +49,15 @@ def calculate_median_depths(document: dict) -> dict:
 
 
 async def create_pathoscope_coverage_cache(db, document):
+    """
+    Create a pathoscope coverage cache document. This saves the costly recalculation of coverage chart coordinates from
+    raw coverage arrays each time the analysis is retrieved.
+
+    :param db: the application database object
+    :param document: the analysis document to create cache for
+    :return: the coverage cache document
+
+    """
     cache = defaultdict(lambda: defaultdict(lambda: dict()))
 
     for hit in document["results"]:
@@ -59,14 +68,13 @@ async def create_pathoscope_coverage_cache(db, document):
                 sequence_id = sequence["id"]
 
                 if sequence.get("align"):
-                    cache[otu_id][isolate_id][sequence_id] = virtool.analyses.utils.transform_coverage_to_coordinates(sequence["align"])
+                    cache[otu_id][isolate_id][
+                        sequence_id
+                    ] = virtool.analyses.utils.transform_coverage_to_coordinates(
+                        sequence["align"]
+                    )
 
-    document = {
-        "analysis": {
-            "id": document["_id"]
-        },
-        "cache": cache
-    }
+    document = {"analysis": {"id": document["_id"]}, "cache": cache}
 
     await db.coverage.insert_one(document)
 
@@ -74,6 +82,15 @@ async def create_pathoscope_coverage_cache(db, document):
 
 
 async def ensure_pathoscope_coverage_cache(db, document):
+    """
+    Attach coverage values to the passed document. Either retrieve an existing coverage cache document or generate a one
+    if one doesn't exist.
+
+    :param db: the application database object
+    :param document: the analysis document
+    :return: the analysis document with coverage attached
+
+    """
     cache = await db.coverage.find_one({"analysis.id": document["_id"]})
 
     if cache is None:
@@ -104,22 +121,24 @@ async def load_results(settings: dict, document: dict) -> dict:
     """
     if document["results"] == "file":
         path = virtool.analyses.utils.join_analysis_json_path(
-            settings["data_path"],
-            document["_id"],
-            document["sample"]["id"]
+            settings["data_path"], document["_id"], document["sample"]["id"]
         )
 
         async with aiofiles.open(path, "r") as f:
             data = json.loads(await f.read())
-            return {
-                **document,
-                "results": data
-            }
+            return {**document, "results": data}
 
     return document
 
 
-async def format_aodp(app, document):
+async def format_aodp(app, document: dict) -> dict:
+    """
+    Format an AODP analysis document by retrieving the detected OTUs and incorporating them into the returned document.
+
+    :param app: the application object
+    :param document: the document to format
+    :return: the formatted document
+    """
     patched_otus = await gather_patched_otus(app, document["results"])
 
     hits = defaultdict(list)
@@ -135,17 +154,19 @@ async def format_aodp(app, document):
                 sequence["hits"] = hits[sequence["_id"]]
                 sequence["id"] = sequence.pop("_id")
 
-    return {
-        **document,
-        "results": list(patched_otus.values())
-    }
+    return {**document, "results": list(patched_otus.values())}
 
 
 async def format_pathoscope(app, document):
-    document = await load_results(
-        app["settings"],
-        document
-    )
+    """
+    Format a Pathoscope analysis document by retrieving the detected OTUs and incorporating them into the returned
+    document. Calculate metrics for different organizational levels: OTU, isolate, sequence.
+
+    :param app: the application object
+    :param document: the document to format
+    :return: the formatted document
+    """
+    document = await load_results(app["settings"], document)
 
     patched_otus = await gather_patched_otus(app, document["results"])
 
@@ -160,7 +181,9 @@ async def format_pathoscope(app, document):
         max_ref_length = 0
 
         for isolate in otu_document["isolates"]:
-            max_ref_length = max(max_ref_length, max([len(s["sequence"]) for s in isolate["sequences"]]))
+            max_ref_length = max(
+                max_ref_length, max([len(s["sequence"]) for s in isolate["sequences"]])
+            )
 
         otu = {
             "id": otu_id,
@@ -168,7 +191,7 @@ async def format_pathoscope(app, document):
             "version": otu_document["version"],
             "abbreviation": otu_document["abbreviation"],
             "isolates": otu_document["isolates"],
-            "length": max_ref_length
+            "length": max_ref_length,
         }
 
         formatted[otu_id] = otu
@@ -187,7 +210,10 @@ async def format_pathoscope(app, document):
 
     for otu in document["results"]:
         for isolate in list(otu["isolates"]):
-            if not any((key in sequence for sequence in isolate["sequences"]) for key in ("pi", "final")):
+            if not any(
+                (key in sequence for sequence in isolate["sequences"])
+                for key in ("pi", "final")
+            ):
                 otu["isolates"].remove(isolate)
                 continue
 
@@ -196,13 +222,15 @@ async def format_pathoscope(app, document):
                     sequence.update(sequence.pop("final"))
                     del sequence["initial"]
                 if "pi" not in sequence:
-                    sequence.update({
-                        "pi": 0,
-                        "reads": 0,
-                        "coverage": 0,
-                        "best": 0,
-                        "length": len(sequence["sequence"])
-                    })
+                    sequence.update(
+                        {
+                            "pi": 0,
+                            "reads": 0,
+                            "coverage": 0,
+                            "best": 0,
+                            "length": len(sequence["sequence"]),
+                        }
+                    )
 
                 sequence["id"] = sequence.pop("_id")
                 del sequence["sequence"]
@@ -213,14 +241,22 @@ async def format_pathoscope(app, document):
 
 
 async def format_nuvs(app, document):
-    document = await load_results(
-        app["settings"],
-        document
+    """
+    Format a NuVs analysis document by attaching the HMM annotation data to the results.
+
+    :param app: the application object
+    :param document: the document to format
+    :return: the formatted document
+    """
+    document = await load_results(app["settings"], document)
+
+    hit_ids = list(
+        {h["hit"] for s in document["results"] for o in s["orfs"] for h in o["hits"]}
     )
 
-    hit_ids = list({h["hit"] for s in document["results"] for o in s["orfs"] for h in o["hits"]})
-
-    cursor = app["db"].hmm.find({"_id": {"$in": hit_ids}}, ["cluster", "families", "names"])
+    cursor = app["db"].hmm.find(
+        {"_id": {"$in": hit_ids}}, ["cluster", "families", "names"]
+    )
 
     hmms = {d.pop("_id"): d async for d in cursor}
 
@@ -233,6 +269,14 @@ async def format_nuvs(app, document):
 
 
 async def format_analysis_to_excel(app, document):
+    """
+    Convert a pathoscope analysis document to Excel format for download.
+
+    :param app: the application object
+    :param document: the document to format
+    :return: the formatted Excel workbook
+    """
+
     depths = calculate_median_depths(document)
 
     formatted = await format_analysis(app, document)
@@ -263,7 +307,7 @@ async def format_analysis_to_excel(app, document):
                     sequence["length"],
                     sequence["pi"],
                     depths.get(sequence["id"], 0),
-                    sequence["coverage"]
+                    sequence["coverage"],
                 ]
 
                 assert len(row) == len(CSV_HEADERS)
@@ -281,6 +325,14 @@ async def format_analysis_to_excel(app, document):
 
 
 async def format_analysis_to_csv(app, document):
+    """
+    Convert a pathoscope analysis document to CSV format for download.
+
+    :param app: the application object
+    :param document: the document to format
+    :return: the formatted Excel workbook
+
+    """
     depths = calculate_median_depths(document)
 
     formatted = await format_analysis(app, document)
@@ -301,7 +353,7 @@ async def format_analysis_to_csv(app, document):
                     sequence["length"],
                     sequence["pi"],
                     depths.get(sequence["id"], 0),
-                    sequence["coverage"]
+                    sequence["coverage"],
                 ]
 
                 writer.writerow(row)
@@ -333,16 +385,24 @@ async def format_analysis(app, document: dict) -> dict:
     raise ValueError("Could not determine analysis workflow")
 
 
-async def gather_patched_otus(app, results):
-    # Use set to only id-version combinations once.
+async def gather_patched_otus(app, results: list) -> dict:
+    """
+    Gather patched OTUs for each result item.
+
+    Only fetch each id-version combination once. Make database requests concurrently instead of serially.
+
+    :param app: the application object
+    :param results: the results field from a pathoscope analysis document
+    :return: a dict containing patched OTUs keyed by the OTU ID
+    """
+
     otu_specifiers = {(hit["otu"]["id"], hit["otu"]["version"]) for hit in results}
 
-    patched_otus = await asyncio.gather(*[
-        virtool.history.db.patch_to_version(
-            app,
-            otu_id,
-            version
-        ) for otu_id, version in otu_specifiers
-    ])
+    patched_otus = await asyncio.gather(
+        *[
+            virtool.history.db.patch_to_version(app, otu_id, version)
+            for otu_id, version in otu_specifiers
+        ]
+    )
 
     return {patched["_id"]: patched for _, patched, _ in patched_otus}

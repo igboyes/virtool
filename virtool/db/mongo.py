@@ -1,3 +1,7 @@
+"""
+Utilities for interacting with MongoDB outside of modifiying collections: connection, server queries.
+
+"""
 import logging
 import sys
 
@@ -15,8 +19,7 @@ logger = logging.getLogger("mongo")
 
 async def connect(config, dispatch):
     db_client = motor.motor_asyncio.AsyncIOMotorClient(
-        config["db_connection_string"],
-        serverSelectionTimeoutMS=6000
+        config["db_connection_string"], serverSelectionTimeoutMS=6000
     )
 
     try:
@@ -29,10 +32,7 @@ async def connect(config, dispatch):
 
     db = db_client[config["db_name"]]
 
-    return virtool.db.core.DB(
-        db,
-        dispatch
-    )
+    return virtool.db.core.DB(db, dispatch)
 
 
 async def check_mongo_version(db):
@@ -46,9 +46,9 @@ async def check_mongo_version(db):
     server_version = (await db.server_info())["version"]
 
     if semver.compare(server_version, MINIMUM_MONGO_VERSION) == -1:
-        logger.critical(f"Virtool requires MongoDB {MINIMUM_MONGO_VERSION}. Found {server_version}.")
+        logger.critical(
+            f"Virtool requires MongoDB {MINIMUM_MONGO_VERSION}. Found {server_version}."
+        )
         sys.exit(1)
 
     logger.info(f"Found MongoDB {server_version}")
-
-

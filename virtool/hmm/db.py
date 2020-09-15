@@ -18,19 +18,14 @@ import virtool.hmm.utils
 import virtool.http.utils
 import virtool.processes.db
 import virtool.processes.process
+import virtool.types
 import virtool.utils
 
 logger = logging.getLogger(__name__)
 
 HMM_REFRESH_INTERVAL = 600
 
-PROJECTION = [
-    "_id",
-    "cluster",
-    "names",
-    "count",
-    "families"
-]
+PROJECTION = ["_id", "cluster", "names", "count", "families"]
 
 
 async def delete_unreferenced_hmms(db, settings: dict) -> pymongo.results.DeleteResult:
@@ -66,11 +61,11 @@ async def get_hmms_referenced_in_files(db, settings: dict) -> set:
     """
     paths = list()
 
-    async for document in db.analyses.find({"workflow": "nuvs", "results": "file"}, ["_id", "sample"]):
+    async for document in db.analyses.find(
+        {"workflow": "nuvs", "results": "file"}, ["_id", "sample"]
+    ):
         path = virtool.analyses.utils.join_analysis_json_path(
-            settings["data_path"],
-            document["_id"],
-            document["sample"]["id"]
+            settings["data_path"], document["_id"], document["sample"]["id"]
         )
 
         paths.append(path)
@@ -97,25 +92,23 @@ async def get_hmms_referenced_in_db(db) -> set:
     :return: set of all HMM ids referenced in analysis documents
 
     """
-    cursor = db.analyses.aggregate([
-        {"$match": {
-            "workflow": "nuvs"
-        }},
-        {"$project": {
-            "results.orfs.hits.hit": True
-        }},
-        {"$unwind": "$results"},
-        {"$unwind": "$results.orfs"},
-        {"$unwind": "$results.orfs.hits"},
-        {"$group": {
-            "_id": "$results.orfs.hits.hit"
-        }}
-    ])
+    cursor = db.analyses.aggregate(
+        [
+            {"$match": {"workflow": "nuvs"}},
+            {"$project": {"results.orfs.hits.hit": True}},
+            {"$unwind": "$results"},
+            {"$unwind": "$results.orfs"},
+            {"$unwind": "$results.orfs.hits"},
+            {"$group": {"_id": "$results.orfs.hits.hit"}},
+        ]
+    )
 
     return {a["_id"] async for a in cursor}
 
 
-async def fetch_and_update_release(app: aiohttp.web.Application, ignore_errors: bool = False) -> dict:
+async def fetch_and_update_release(
+    app: aiohttp.web.Application, ignore_errors: bool = False
+) -> dict:
     """
     Return the HMM install status document or create one if none exists.
 
@@ -146,37 +139,31 @@ async def fetch_and_update_release(app: aiohttp.web.Application, ignore_errors: 
         # The release dict will only be replaced if there is a 200 response from GitHub. A 304 indicates the release
         # has not changed and `None` is returned from `get_release()`.
         updated = await virtool.github.get_release(
-            settings,
-            session,
-            settings["hmm_slug"],
-            etag
+            settings, session, settings["hmm_slug"], etag
         )
 
         # Release is replace with updated release if an update was found on GitHub.
         if updated:
-            release = virtool.hmm.utils.format_hmm_release(
-                updated,
-                release,
-                installed
-            )
+            release = virtool.hmm.utils.format_hmm_release(updated, release, installed)
 
         # Update the last retrieval timestamp whether or not an update was found on GitHub.
         release["retrieved_at"] = virtool.utils.timestamp()
 
         # Set and empty error list since the update check was successful.
-        await db.status.update_one({"_id": "hmm"}, {
-            "$set": {
-                "errors": [],
-                "installed": installed,
-                "release": release
-            }
-        }, upsert=True)
+        await db.status.update_one(
+            {"_id": "hmm"},
+            {"$set": {"errors": [], "installed": installed, "release": release}},
+            upsert=True,
+        )
 
         logger.debug("Fetched and updated HMM release")
 
         return release
 
-    except (aiohttp.client_exceptions.ClientConnectorError, virtool.errors.GitHubError) as err:
+    except (
+        aiohttp.client_exceptions.ClientConnectorError,
+        virtool.errors.GitHubError,
+    ) as err:
         errors = list()
 
         if "ClientConnectorError" in str(err):
@@ -188,12 +175,9 @@ async def fetch_and_update_release(app: aiohttp.web.Application, ignore_errors: 
         if errors and not ignore_errors:
             raise
 
-        await db.status.update_one({"_id": "hmm"}, {
-            "$set": {
-                "errors": errors,
-                "installed": installed
-            }
-        })
+        await db.status.update_one(
+            {"_id": "hmm"}, {"$set": {"errors": errors, "installed": installed}}
+        )
 
         return release
 
@@ -215,7 +199,7 @@ async def get_status(db) -> dict:
     return virtool.utils.base_processor(status)
 
 
-async def install(app, process_id, release, user_id):
+async def install(app: virtool.types.App, process_id: str, release: dict, user_id: str):
     """
     Runs a background Task that:
 
@@ -233,16 +217,9 @@ async def install(app, process_id, release, user_id):
         5. import_annotations
 
     :param app: the app object
-    :type app: :class:`aiohttp.web.Application`
-
     :param process_id: the id for the process document
-    :type process_id: str
-
     :param release: the release to install
-    :type release: dict
-
     :param user_id: the id of the user making the request
-    :type user_id: str
 
     """
     db = app["db"]
@@ -250,11 +227,7 @@ async def install(app, process_id, release, user_id):
     await virtool.processes.db.update(db, process_id, 0, step="download")
 
     progress_tracker = virtool.processes.process.ProgressTracker(
-        db,
-        process_id,
-        release["size"],
-        factor=0.4,
-        increment=0.01
+        db, process_id, release["size"], factor=0.4, increment=0.01
     )
 
     with virtool.utils.get_temp_dir() as tempdir:
@@ -265,63 +238,42 @@ async def install(app, process_id, release, user_id):
 
         try:
             await virtool.http.utils.download_file(
-                app,
-                release["download_url"],
-                path,
-                progress_tracker.add
+                app, release["download_url"], path, progress_tracker.add
             )
         except (aiohttp.ClientConnectorError, virtool.errors.GitHubError):
             await virtool.processes.db.update(
-                db,
-                process_id,
-                errors=["Could not download HMM data"],
-                step="unpack"
+                db, process_id, errors=["Could not download HMM data"], step="unpack"
             )
 
-        await virtool.processes.db.update(
-            db,
-            process_id,
-            progress=0.4,
-            step="unpack"
-        )
+        await virtool.processes.db.update(db, process_id, progress=0.4, step="unpack")
 
-        await app["run_in_thread"](
-            virtool.utils.decompress_tgz,
-            path,
-            temp_path
-        )
+        await app["run_in_thread"](virtool.utils.decompress_tgz, path, temp_path)
 
         await virtool.processes.db.update(
-            db,
-            process_id,
-            progress=0.6,
-            step="install_profiles"
+            db, process_id, progress=0.6, step="install_profiles"
         )
 
         decompressed_path = os.path.join(temp_path, "hmm")
 
         install_path = os.path.join(app["settings"]["data_path"], "hmm", "profiles.hmm")
 
-        await app["run_in_thread"](shutil.move, os.path.join(decompressed_path, "profiles.hmm"), install_path)
-
-        await virtool.processes.db.update(
-            db,
-            process_id,
-            progress=0.8,
-            step="import_annotations"
+        await app["run_in_thread"](
+            shutil.move, os.path.join(decompressed_path, "profiles.hmm"), install_path
         )
 
-        async with aiofiles.open(os.path.join(decompressed_path, "annotations.json"), "r") as f:
+        await virtool.processes.db.update(
+            db, process_id, progress=0.8, step="import_annotations"
+        )
+
+        async with aiofiles.open(
+            os.path.join(decompressed_path, "annotations.json"), "r"
+        ) as f:
             annotations = json.loads(await f.read())
 
         await purge(db, app["settings"])
 
         progress_tracker = virtool.processes.process.ProgressTracker(
-            db,
-            process_id,
-            len(annotations),
-            factor=0.2,
-            initial=0.8
+            db, process_id, len(annotations), factor=0.2, initial=0.8
         )
 
         for annotation in annotations:
@@ -335,20 +287,21 @@ async def install(app, process_id, release, user_id):
         except TypeError:
             release_id = release["id"]
 
-        await db.status.update_one({"_id": "hmm", "updates.id": release_id}, {
-            "$set": {
-                "installed": virtool.github.create_update_subdocument(release, True, user_id),
-                "updates.$.ready": True
-            }
-        })
+        await db.status.update_one(
+            {"_id": "hmm", "updates.id": release_id},
+            {
+                "$set": {
+                    "installed": virtool.github.create_update_subdocument(
+                        release, True, user_id
+                    ),
+                    "updates.$.ready": True,
+                }
+            },
+        )
 
         logger.debug("Update HMM status")
 
-        await virtool.processes.db.update(
-            db,
-            process_id,
-            progress=1
-        )
+        await virtool.processes.db.update(db, process_id, progress=1)
 
         logger.debug("Finished HMM install process")
 
@@ -365,11 +318,7 @@ async def purge(db, settings: dict):
     """
     await delete_unreferenced_hmms(db, settings)
 
-    await db.hmm.update_many({}, {
-        "$set": {
-            "hidden": True
-        }
-    })
+    await db.hmm.update_many({}, {"$set": {"hidden": True}})
 
 
 async def refresh(app):

@@ -17,7 +17,14 @@ import virtool.http.routes
 import virtool.samples.utils
 import virtool.subtractions.db
 import virtool.utils
-from virtool.api.response import bad_request, conflict, insufficient_rights, json_response, no_content, not_found
+from virtool.api.response import (
+    bad_request,
+    conflict,
+    insufficient_rights,
+    json_response,
+    no_content,
+    not_found,
+)
 
 routes = virtool.http.routes.Routes()
 
@@ -47,7 +54,9 @@ async def get(req):
     if if_modified_since and if_modified_since == iso:
         return virtool.api.response.not_modified()
 
-    sample = await db.samples.find_one({"_id": document["sample"]["id"]}, {"quality": False})
+    sample = await db.samples.find_one(
+        {"_id": document["sample"]["id"]}, {"quality": False}
+    )
 
     if not sample:
         return bad_request("Parent sample does not exist")
@@ -64,7 +73,7 @@ async def get(req):
 
     headers = {
         "Cache-Control": "no-cache",
-        "Last-Modified": virtool.api.json.isoformat(document["created_at"])
+        "Last-Modified": virtool.api.json.isoformat(document["created_at"]),
     }
 
     return json_response(virtool.utils.base_processor(document), headers=headers)
@@ -80,14 +89,18 @@ async def remove(req):
 
     analysis_id = req.match_info["analysis_id"]
 
-    document = await db.analyses.find_one({"_id": analysis_id}, ["job", "ready", "sample"])
+    document = await db.analyses.find_one(
+        {"_id": analysis_id}, ["job", "ready", "sample"]
+    )
 
     if not document:
         return not_found()
 
     sample_id = document["sample"]["id"]
 
-    sample = await db.samples.find_one({"_id": sample_id}, virtool.samples.db.PROJECTION)
+    sample = await db.samples.find_one(
+        {"_id": sample_id}, virtool.samples.db.PROJECTION
+    )
 
     if not sample:
         return bad_request("Parent sample does not exist")
@@ -103,11 +116,7 @@ async def remove(req):
     await db.analyses.delete_one({"_id": analysis_id})
 
     path = os.path.join(
-        req.app["settings"]["data_path"],
-        "samples",
-        sample_id,
-        "analysis",
-        analysis_id
+        req.app["settings"]["data_path"], "samples", sample_id, "analysis", analysis_id
     )
 
     try:
@@ -133,7 +142,9 @@ async def blast(req):
     analysis_id = req.match_info["analysis_id"]
     sequence_index = int(req.match_info["sequence_index"])
 
-    document = await db.analyses.find_one({"_id": analysis_id}, ["ready", "workflow", "results", "sample"])
+    document = await db.analyses.find_one(
+        {"_id": analysis_id}, ["ready", "workflow", "results", "sample"]
+    )
 
     if not document:
         return not_found("Analysis not found")
@@ -144,12 +155,16 @@ async def blast(req):
     if not document["ready"]:
         return conflict("Analysis is still running")
 
-    sequence = virtool.analyses.utils.find_nuvs_sequence_by_index(document, sequence_index)
+    sequence = virtool.analyses.utils.find_nuvs_sequence_by_index(
+        document, sequence_index
+    )
 
     if sequence is None:
         return not_found("Sequence not found")
 
-    sample = await db.samples.find_one({"_id": document["sample"]["id"]}, virtool.samples.db.PROJECTION)
+    sample = await db.samples.find_one(
+        {"_id": document["sample"]["id"]}, virtool.samples.db.PROJECTION
+    )
 
     if not sample:
         return bad_request("Parent sample does not exist")
@@ -163,24 +178,16 @@ async def blast(req):
     rid, _ = await virtool.bio.initialize_ncbi_blast(req.app["settings"], sequence)
 
     blast_data, document = await virtool.analyses.db.update_nuvs_blast(
-        db,
-        settings,
-        analysis_id,
-        sequence_index,
-        rid
+        db, settings, analysis_id, sequence_index, rid
     )
 
     # Wait on BLAST request as a Task until the it completes on NCBI. At that point the sequence in the DB will be
     # updated with the BLAST result.
-    await aiojobs.aiohttp.spawn(req, virtool.bio.wait_for_blast_result(
-        req.app,
-        analysis_id,
-        sequence_index,
-        rid
-    ))
+    await aiojobs.aiohttp.spawn(
+        req,
+        virtool.bio.wait_for_blast_result(req.app, analysis_id, sequence_index, rid),
+    )
 
-    headers = {
-        "Location": f"/api/analyses/{analysis_id}/{sequence_index}/blast"
-    }
+    headers = {"Location": f"/api/analyses/{analysis_id}/{sequence_index}/blast"}
 
     return json_response(blast_data, headers=headers, status=201)

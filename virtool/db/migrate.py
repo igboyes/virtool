@@ -1,3 +1,7 @@
+"""
+Functions for updating database collections on application start.
+
+"""
 import logging
 
 import pymongo.errors
@@ -45,11 +49,7 @@ async def migrate_files(db):
     """
     logger.info(" • files")
 
-    await db.files.update_many({}, {
-        "$set": {
-            "reserved": False
-        }
-    }, silent=True)
+    await db.files.update_many({}, {"$set": {"reserved": False}}, silent=True)
 
 
 async def migrate_groups(db):
@@ -62,18 +62,21 @@ async def migrate_groups(db):
     """
     logger.info(" • groups")
 
-    await db.groups.update_many({}, {
-        "$unset": {
-            "_version": ""
-        }
-    })
+    await db.groups.update_many({}, {"$unset": {"_version": ""}})
 
     async for group in db.groups.find():
-        await db.groups.update_one({"_id": group["_id"]}, {
-            "$set": {
-                "permissions": {perm: group["permissions"].get(perm, False) for perm in virtool.users.utils.PERMISSIONS}
-            }
-        }, silent=True)
+        await db.groups.update_one(
+            {"_id": group["_id"]},
+            {
+                "$set": {
+                    "permissions": {
+                        perm: group["permissions"].get(perm, False)
+                        for perm in virtool.users.utils.PERMISSIONS
+                    }
+                }
+            },
+            silent=True,
+        )
 
 
 async def migrate_jobs(db):
@@ -91,46 +94,48 @@ async def migrate_sessions(db):
 async def migrate_status(db, server_version):
     logger.info(" • status")
 
-    await db.status.delete_many({
-        "_id": {
-            "$in": ["software_update", "version"]
-        }
-    })
+    await db.status.delete_many({"_id": {"$in": ["software_update", "version"]}})
 
     mongo_version = await virtool.db.utils.determine_mongo_version(db)
 
     try:
-        await db.status.insert_one({
-            "_id": "software",
-            "installed": None,
-            "mongo_version": mongo_version,
-            "process": None,
-            "releases": list(),
-            "updating": False,
-            "version": server_version,
-        })
-    except pymongo.errors.DuplicateKeyError:
-        await db.status.update_one({"_id": "software"}, {
-            "$set": {
+        await db.status.insert_one(
+            {
+                "_id": "software",
+                "installed": None,
                 "mongo_version": mongo_version,
                 "process": None,
+                "releases": list(),
                 "updating": False,
-                "version": server_version
+                "version": server_version,
             }
-        })
+        )
+    except pymongo.errors.DuplicateKeyError:
+        await db.status.update_one(
+            {"_id": "software"},
+            {
+                "$set": {
+                    "mongo_version": mongo_version,
+                    "process": None,
+                    "updating": False,
+                    "version": server_version,
+                }
+            },
+        )
 
     try:
-        await db.status.insert_one({
-            "_id": "hmm",
-            "installed": None,
-            "process": None,
-            "updates": list(),
-            "release": None
-        })
+        await db.status.insert_one(
+            {
+                "_id": "hmm",
+                "installed": None,
+                "process": None,
+                "updates": list(),
+                "release": None,
+            }
+        )
     except pymongo.errors.DuplicateKeyError:
         if await db.hmm.count_documents({}):
-            await db.status.update_one({"_id": "hmm", "installed": {"$exists": False}}, {
-                "$set": {
-                    "installed": None
-                }
-            })
+            await db.status.update_one(
+                {"_id": "hmm", "installed": {"$exists": False}},
+                {"$set": {"installed": None}},
+            )

@@ -1,25 +1,43 @@
 import asyncio
 
 import virtool.api.utils
-import virtool.history.db
-import virtool.indexes.db
-import virtool.jobs.db
-import virtool.references.db
 import virtool.db.utils
+import virtool.history.db
 import virtool.history.utils
 import virtool.http.routes
+import virtool.indexes.db
 import virtool.jobs.build_index
+import virtool.jobs.db
+import virtool.references.db
 import virtool.utils
-from virtool.api.response import bad_request, conflict, insufficient_rights, json_response, \
-    not_found
+from virtool.api.response import (
+    bad_request,
+    conflict,
+    insufficient_rights,
+    json_response,
+    not_found,
+)
 
 routes = virtool.http.routes.Routes()
+
+#: An aggregation pipeline for finding
+FIND_PIPELINE = pipeline = [
+    {"$match": {"ready": True}},
+    {"$sort": {"version": -1}},
+    {
+        "$group": {
+            "_id": "$reference.id",
+            "index": {"$first": "$_id"},
+            "version": {"$first": "$version"},
+        }
+    },
+]
 
 
 @routes.get("/api/indexes")
 async def find(req):
     """
-    Return a list of indexes.
+    Return a list of indexes. Can be set to only return ready indexes by setting the `ready` URL parameter.
 
     """
     db = req.app["db"]
@@ -30,44 +48,22 @@ async def find(req):
         data = await virtool.indexes.db.find(db, req.query)
         return json_response(data)
 
-    pipeline = [
-        {
-            "$match": {
-                "ready": True
-            }
-        },
-        {
-            "$sort": {
-                "version": -1
-            }
-        },
-        {
-            "$group": {
-                "_id": "$reference.id",
-                "index": {
-                    "$first": "$_id"
-                },
-                "version": {
-                    "$first": "$version"
-                }
-            }
-        }
-    ]
-
     ready_indexes = list()
 
-    async for agg in db.indexes.aggregate(pipeline):
+    async for agg in db.indexes.aggregate(FIND_PIPELINE):
         reference = await db.references.find_one(agg["_id"], ["data_type", "name"])
 
-        ready_indexes.append({
-            "id": agg["index"],
-            "version": agg["version"],
-            "reference": {
-                "id": agg["_id"],
-                "name": reference["name"],
-                "data_type": reference["data_type"]
+        ready_indexes.append(
+            {
+                "id": agg["index"],
+                "version": agg["version"],
+                "reference": {
+                    "id": agg["_id"],
+                    "name": reference["name"],
+                    "data_type": reference["data_type"],
+                },
             }
-        })
+        )
 
     return json_response(ready_indexes)
 
@@ -75,7 +71,7 @@ async def find(req):
 @routes.get("/api/indexes/{index_id}")
 async def get(req):
     """
-    Get the complete document for a given index.
+    Get the complete document for a given index. Attach the complete contributor and member OTU information.
 
     """
     db = req.app["db"]
@@ -89,14 +85,16 @@ async def get(req):
 
     contributors, otus = await asyncio.gather(
         virtool.indexes.db.get_contributors(db, index_id),
-        virtool.indexes.db.get_otus(db, index_id)
+        virtool.indexes.db.get_otus(db, index_id),
     )
 
-    document.update({
-        "change_count": sum(v["change_count"] for v in otus),
-        "contributors": contributors,
-        "otus": otus,
-    })
+    document.update(
+        {
+            "change_count": sum(v["change_count"] for v in otus),
+            "contributors": contributors,
+            "otus": otus,
+        }
+    )
 
     document = await virtool.indexes.db.processor(db, document)
 
@@ -128,7 +126,9 @@ async def create(req):
     if await db.otus.count_documents({"reference.id": ref_id, "verified": False}):
         return bad_request("There are unverified OTUs")
 
-    if not await db.history.count_documents({"reference.id": ref_id, "index.id": "unbuilt"}):
+    if not await db.history.count_documents(
+        {"reference.id": ref_id, "index.id": "unbuilt"}
+    ):
         return bad_request("There are no unbuilt changes")
 
     index_id = await virtool.db.utils.get_new_id(db.indexes)
@@ -148,27 +148,17 @@ async def create(req):
         "manifest": manifest,
         "ready": False,
         "has_files": True,
-        "job": {
-            "id": job_id
-        },
-        "reference": {
-            "id": ref_id
-        },
-        "user": {
-            "id": user_id
-        }
+        "job": {"id": job_id},
+        "reference": {"id": ref_id},
+        "user": {"id": user_id},
     }
 
     await db.indexes.insert_one(document)
 
-    await db.history.update_many({"index.id": "unbuilt", "reference.id": ref_id}, {
-        "$set": {
-            "index": {
-                "id": index_id,
-                "version": index_version
-            }
-        }
-    })
+    await db.history.update_many(
+        {"index.id": "unbuilt", "reference.id": ref_id},
+        {"$set": {"index": {"id": index_id, "version": index_version}}},
+    )
 
     # A dict of task_args for the rebuild job.
     task_args = {
@@ -176,25 +166,21 @@ async def create(req):
         "user_id": user_id,
         "index_id": index_id,
         "index_version": index_version,
-        "manifest": manifest
+        "manifest": manifest,
     }
 
     # Create job document.
     job = await virtool.jobs.db.create(
-        db,
-        "build_index",
-        task_args,
-        user_id,
-        job_id=job_id
+        db, "build_index", task_args, user_id, job_id=job_id
     )
 
     await req.app["jobs"].enqueue(job["_id"])
 
-    headers = {
-        "Location": "/api/indexes/" + index_id
-    }
+    headers = {"Location": "/api/indexes/" + index_id}
 
-    return json_response(virtool.utils.base_processor(document), status=201, headers=headers)
+    return json_response(
+        virtool.utils.base_processor(document), status=201, headers=headers
+    )
 
 
 @routes.get("/api/indexes/{index_id}/history")
@@ -212,12 +198,12 @@ async def find_history(req):
 
     term = req.query.get("term")
 
-    db_query = {
-        "index.id": index_id
-    }
+    db_query = {"index.id": index_id}
 
     if term:
-        db_query.update(virtool.api.utils.compose_regex_query(term, ["otu.name", "user.id"]))
+        db_query.update(
+            virtool.api.utils.compose_regex_query(term, ["otu.name", "user.id"])
+        )
 
     data = await virtool.api.utils.paginate(
         db.history,
@@ -225,7 +211,7 @@ async def find_history(req):
         req.query,
         sort=[("otu.name", 1), ("otu.version", -1)],
         projection=virtool.history.db.LIST_PROJECTION,
-        reverse=True
+        reverse=True,
     )
 
     return json_response(data)
